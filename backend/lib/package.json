@@ -1,0 +1,19 @@
+{
+  "name": "kahili",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "npm run build && npm start"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.7.3"
+  }
+}

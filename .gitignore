@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.DS_Store
+
+# Runtime files
+backend/build.json
+backend/kahu.pid
+backend/kahu/data/
+backend/kahu/logs/
+backend/docs/investigations/
