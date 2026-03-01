@@ -7,6 +7,7 @@ import { SentryClient } from "./sentry-client.js";
 import { startPolling } from "./poller.js";
 import { startServer } from "./server.js";
 import { processRules } from "./rules/index.js";
+import { startReporter } from "./reporter.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +27,7 @@ const org = process.env.SENTRY_ORG;
 const project = process.env.SENTRY_PROJECT;
 const pollInterval = parseInt(process.env.POLL_INTERVAL || "300", 10);
 const alertRuleName = process.env.ALERT_RULE_NAME || "Client Errors";
+const reportInterval = parseInt(process.env.REPORT_UPDATE_INTERVAL || "300", 10);
 const webPort = parseInt(process.env.WEB_PORT || "3456", 10);
 
 if (!token) {
@@ -61,3 +63,4 @@ startServer(webPort);
 await processRules();
 
 startPolling(client, { pollInterval, alertRuleName });
+startReporter(client, reportInterval);

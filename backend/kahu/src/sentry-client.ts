@@ -3,10 +3,27 @@ import type {
   SentryFullEvent,
   SentryAlertRule,
   AlertGroupHistoryItem,
+  SentryResolvedIssue,
+  SentryActivity,
 } from "./types.js";
 import { log } from "./logger.js";
 
 const BASE_URL = "https://sentry.io/api/0";
+
+/**
+ * Parse Sentry's Link header to extract cursor for the next page.
+ * Returns null if there's no next page.
+ */
+function getNextCursor(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    if (!part.includes('rel="next"')) continue;
+    if (!part.includes('results="true"')) return null;
+    const m = part.match(/cursor="([^"]+)"/);
+    return m ? m[1] : null;
+  }
+  return null;
+}
 
 export interface SentryClientConfig {
   token: string;
@@ -103,6 +120,60 @@ export class SentryClient {
     );
     const raw = (await res.json()) as Record<string, unknown>;
     return trimEvent(raw);
+  }
+
+  async searchIssues(query: string, limit: number = 100): Promise<SentryResolvedIssue[]> {
+    const params = new URLSearchParams();
+    params.set("query", query);
+    params.set("sort", "date");
+    params.set("limit", String(limit));
+
+    const res = await this.request(
+      `/projects/${this.org}/${this.project}/issues/?${params.toString()}`
+    );
+    return (await res.json()) as SentryResolvedIssue[];
+  }
+
+  /**
+   * Fetch issues with cursor-based pagination.
+   * Pages are fetched sequentially (one at a time) to stay safe on Pi.
+   * @param maxPages Hard cap on number of pages (100 issues each).
+   */
+  async searchIssuesPaginated(query: string, maxPages: number = 3): Promise<SentryResolvedIssue[]> {
+    const all: SentryResolvedIssue[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < maxPages; page++) {
+      const params = new URLSearchParams();
+      params.set("query", query);
+      params.set("sort", "date");
+      params.set("limit", "100");
+      if (cursor) params.set("cursor", cursor);
+
+      const res = await this.request(
+        `/projects/${this.org}/${this.project}/issues/?${params.toString()}`
+      );
+      const issues = (await res.json()) as SentryResolvedIssue[];
+      all.push(...issues);
+
+      if (issues.length < 100) break; // last page
+      cursor = getNextCursor(res.headers.get("Link"));
+      if (!cursor) break;
+    }
+
+    return all;
+  }
+
+  /**
+   * Fetch activity feed for a single issue.
+   * Returns recent activities (status changes, assignments, etc.).
+   */
+  async getIssueActivities(issueId: string, limit: number = 10): Promise<SentryActivity[]> {
+    const res = await this.request(
+      `/organizations/${this.org}/issues/${issueId}/activities/?limit=${limit}`
+    );
+    const data = (await res.json()) as { activity?: SentryActivity[] };
+    return data.activity ?? [];
   }
 
   async getIssueFullEvents(

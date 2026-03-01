@@ -3,6 +3,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBuild } from "./build.js";
 import { restartKahu } from "./kahu-manager.js";
+import { log } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(__dirname, "../..");
@@ -77,13 +78,13 @@ export async function applyKahuSettings(
   const merged = { ...current, ...settings };
 
   writeEnvFile(merged);
-  console.log("[kahili] Wrote kahu .env");
+  log.info("[kahili] Wrote kahu .env");
 
   // Backfill repo path into mother issues
   let backfilled = 0;
   if (merged.REPO_PATH) {
     backfilled = backfillRepoPath(merged.REPO_PATH);
-    console.log(
+    log.info(
       `[kahili] Backfilled repoPath into ${backfilled} mother issue(s).`
     );
   }

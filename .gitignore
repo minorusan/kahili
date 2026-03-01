@@ -7,5 +7,13 @@ dist/
 backend/build.json
 backend/kahu.pid
 backend/kahu/data/
+backend/kahu/data/reports/
 backend/kahu/logs/
+backend/lib/logs/
 backend/docs/investigations/
+backend/docs/rule-generation/
+
+# Flutter
+client/build/
+client/.dart_tool/
+client/.packages

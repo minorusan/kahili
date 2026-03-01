@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { log } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(__dirname, "../..");
@@ -57,10 +58,19 @@ export async function killProcess(pid: number): Promise<void> {
   }
 }
 
+/** Kill anything occupying the kahu port, regardless of PID file. */
+function killPortOccupants(port: number): void {
+  try {
+    execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: "ignore" });
+  } catch {
+    // nothing on that port — fine
+  }
+}
+
 export function buildKahu(): void {
-  console.log("[kahili] Building kahu...");
+  log.info("[kahili] Building kahu...");
   execSync("npm run build", { cwd: KAHU_DIR, stdio: "inherit" });
-  console.log("[kahili] Kahu build complete.");
+  log.info("[kahili] Kahu build complete.");
 }
 
 export function spawnKahu(): ChildProcess {
@@ -72,18 +82,18 @@ export function spawnKahu(): ChildProcess {
 
   child.stdout?.on("data", (data: Buffer) => {
     for (const line of data.toString().split("\n").filter(Boolean)) {
-      console.log(`[kahu] ${line}`);
+      log.info(`[kahu] ${line}`);
     }
   });
 
   child.stderr?.on("data", (data: Buffer) => {
     for (const line of data.toString().split("\n").filter(Boolean)) {
-      console.error(`[kahu:err] ${line}`);
+      log.error(`[kahu:err] ${line}`);
     }
   });
 
   child.on("exit", (code, signal) => {
-    console.log(`[kahili] Kahu exited (code=${code}, signal=${signal})`);
+    log.info(`[kahili] Kahu exited (code=${code}, signal=${signal})`);
   });
 
   return child;
@@ -93,9 +103,13 @@ export async function restartKahu(currentBuild: number): Promise<number> {
   const pidInfo = readPidFile();
 
   if (pidInfo && isProcessAlive(pidInfo.pid)) {
-    console.log(`[kahili] Restarting kahu (killing PID ${pidInfo.pid})...`);
+    log.info(`[kahili] Restarting kahu (killing PID ${pidInfo.pid})...`);
     await killProcess(pidInfo.pid);
   }
+
+  // Kill anything still holding kahu's port
+  const kahuPort = parseInt(process.env.WEB_PORT || "3456", 10);
+  killPortOccupants(kahuPort);
 
   try {
     unlinkSync(PID_FILE);
@@ -109,7 +123,7 @@ export async function restartKahu(currentBuild: number): Promise<number> {
   const pid = child.pid!;
 
   writePidFile(pid, currentBuild);
-  console.log(`[kahili] Kahu restarted (PID ${pid}, build ${currentBuild}).`);
+  log.info(`[kahili] Kahu restarted (PID ${pid}, build ${currentBuild}).`);
 
   return pid;
 }
@@ -121,19 +135,19 @@ export async function ensureKahu(currentBuild: number): Promise<number> {
     const alive = isProcessAlive(pidInfo.pid);
 
     if (alive && pidInfo.build >= currentBuild) {
-      console.log(
+      log.info(
         `[kahili] Kahu (PID ${pidInfo.pid}, build ${pidInfo.build}) is up to date — skipping rebuild.`
       );
       return pidInfo.pid;
     }
 
     if (alive) {
-      console.log(
+      log.info(
         `[kahili] Kahu (PID ${pidInfo.pid}, build ${pidInfo.build}) is stale (current: ${currentBuild}) — killing...`
       );
       await killProcess(pidInfo.pid);
     } else {
-      console.log(
+      log.info(
         `[kahili] Stale PID file (PID ${pidInfo.pid} is dead) — cleaning up.`
       );
     }
@@ -145,13 +159,17 @@ export async function ensureKahu(currentBuild: number): Promise<number> {
     }
   }
 
+  // Kill anything still holding kahu's port
+  const kahuPort = parseInt(process.env.WEB_PORT || "3456", 10);
+  killPortOccupants(kahuPort);
+
   buildKahu();
 
   const child = spawnKahu();
   const pid = child.pid!;
 
   writePidFile(pid, currentBuild);
-  console.log(
+  log.info(
     `[kahili] Kahu spawned (PID ${pid}, build ${currentBuild}).`
   );
 

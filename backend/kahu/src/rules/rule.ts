@@ -14,6 +14,8 @@ export interface MotherIssue {
     lastSeen: string;
   };
   childIssueIds: string[]; // sentry issue IDs grouped here
+  sentryLinks: string[]; // permalink for each child issue
+  smartlookUrls: string[]; // unique smartlook session URLs from event contexts
   repoPath?: string; // local repo path, backfilled from settings
   stackTrace?: {
     frames: Array<{
@@ -30,5 +32,6 @@ export interface MotherIssue {
 export abstract class Rule {
   abstract readonly name: string;
   abstract readonly description: string;
+  abstract readonly logic: string;
   abstract groupingKey(issue: SavedIssue): string | null;
 }

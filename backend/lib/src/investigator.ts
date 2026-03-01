@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import {
   readFileSync,
   writeFileSync,
@@ -11,6 +11,8 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { broadcast } from "./websocket.js";
 import { readKahuSettings } from "./settings.js";
+import { log } from "./logger.js";
+import { spawnAgent, pipeAgentLogs, killProcessTree } from "./agent-spawn.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(__dirname, "../..");
@@ -127,7 +129,8 @@ function buildErrorDetails(
 }
 
 function buildAgentPrompt(
-  errorDetails: string,
+  motherIssuePath: string,
+  childIssuePaths: string[],
   reportPath: string,
   branch?: string,
   additionalPrompt?: string
@@ -144,6 +147,10 @@ function buildAgentPrompt(
     extra = `\n\nADDITIONAL CONTEXT FROM USER:\n${additionalPrompt}`;
   }
 
+  const childFiles = childIssuePaths.length
+    ? childIssuePaths.map((p) => `  - ${p}`).join("\n")
+    : "  (none)";
+
   return `You are investigating a Sentry error. Your task is to investigate, identify root cause, and suggest a concrete fix.
 
 MANDATORY: STATUS FILE AT ${reportPath}
@@ -152,16 +159,20 @@ You MUST write to this file throughout your investigation:
 2. As you progress, UPDATE the file with brief status
 3. When DONE, REPLACE entire file content with your final report
 
-ERROR DETAILS:
-${errorDetails}
+ERROR DATA FILES (read these first):
+Mother issue: ${motherIssuePath}
+Child issues:
+${childFiles}
 
 INVESTIGATION STEPS:
 1. Write initial status to report file
-2. BRANCH SELECTION — ${branchInstruction}
-3. Use git show <branch>:<filepath> to read files (DO NOT checkout)
-4. Trace the error — understand WHY, not just WHERE
-5. git log --format='%aN' -5 on affected files to find suggested assignee
-6. Write final report
+2. Read the mother issue JSON file to understand the error (title, errorType, stackTrace, metrics)
+3. Read child issue JSON files for full event details and stack traces
+4. BRANCH SELECTION — ${branchInstruction}
+5. Use git show <branch>:<filepath> to read source files (DO NOT checkout)
+6. Trace the error — understand WHY, not just WHERE
+7. git log --format='%aN' -5 on affected files to find suggested assignee
+8. Write final report
 
 FINAL REPORT FORMAT (markdown):
 # Investigation: <short title>
@@ -206,12 +217,12 @@ export async function startInvestigation(
     throw new Error(`Mother issue not found: ${motherIssueId}`);
   }
 
-  // Load child issues for full context
+  // Build file paths for child issues
   const childIds = (mi.childIssueIds as string[]) || [];
-  const childIssues: Record<string, unknown>[] = [];
+  const childIssuePaths: string[] = [];
   for (const cid of childIds) {
-    const child = loadChildIssue(cid);
-    if (child) childIssues.push(child);
+    const p = resolve(ISSUES_DIR, `${cid}.json`);
+    if (existsSync(p)) childIssuePaths.push(p);
   }
 
   // Set up report path inside the repo
@@ -221,20 +232,16 @@ export async function startInvestigation(
   // Clear previous report
   writeFileSync(reportPath, "Investigating: Starting analysis...\n");
 
-  const errorDetails = buildErrorDetails(mi, childIssues);
+  const motherIssuePath = resolve(MOTHER_ISSUES_DIR, `${motherIssueId}.json`);
   const prompt = buildAgentPrompt(
-    errorDetails,
+    motherIssuePath,
+    childIssuePaths,
     reportPath,
     branch,
     additionalPrompt
   );
 
-  // Spawn claude agent
-  const child = spawn("claude", ["--dangerously-skip-permissions", "-p", prompt], {
-    cwd: repoPath,
-    stdio: "pipe",
-    env: { ...process.env },
-  });
+  const child = spawnAgent(prompt, repoPath);
   agentProcess = child;
 
   const pid = child.pid!;
@@ -250,8 +257,8 @@ export async function startInvestigation(
     lastReport: "Investigating: Starting analysis...",
   };
 
-  console.log(
-    `[kahili:investigate] Spawned claude agent PID ${pid} for mother issue ${motherIssueId}`
+  log.info(
+    `[kahili:investigate] Spawned agent PID ${pid} for mother issue ${motherIssueId}`
   );
 
   broadcast("investigation:started", {
@@ -260,18 +267,7 @@ export async function startInvestigation(
     status: "running",
   });
 
-  // Pipe agent stdout/stderr for logging
-  child.stdout?.on("data", (data: Buffer) => {
-    for (const line of data.toString().split("\n").filter(Boolean)) {
-      console.log(`[investigate:${motherIssueId}] ${line}`);
-    }
-  });
-
-  child.stderr?.on("data", (data: Buffer) => {
-    for (const line of data.toString().split("\n").filter(Boolean)) {
-      console.error(`[investigate:${motherIssueId}:err] ${line}`);
-    }
-  });
+  pipeAgentLogs(child, `investigate:${motherIssueId}`);
 
   // Watch the report file for changes and broadcast
   let lastContent = "";
@@ -298,6 +294,9 @@ export async function startInvestigation(
     agentProcess = null;
     unwatchFile(reportPath);
 
+    // Defensively kill the whole process tree (script + claude)
+    killProcessTree(pid);
+
     // Read final report
     let finalReport = "";
     try {
@@ -312,7 +311,7 @@ export async function startInvestigation(
       current.lastReport = finalReport;
     }
 
-    console.log(
+    log.info(
       `[kahili:investigate] Agent PID ${pid} exited (code=${code}, signal=${signal})`
     );
 

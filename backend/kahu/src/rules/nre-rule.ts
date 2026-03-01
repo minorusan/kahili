@@ -6,6 +6,12 @@ export class NreRule extends Rule {
   readonly name = "NullReferenceException";
   readonly description =
     "Groups NullReferenceException issues by full stack trace hash";
+  readonly logic =
+    "1. Check if issue is NRE via metadata.type, exception type, or title prefix\n" +
+    "2. Extract stack frames from first event's exception\n" +
+    "3. Filter to in-app frames only\n" +
+    "4. SHA256 hash the concatenated function names\n" +
+    "5. Grouping key: NullReferenceException::stacktrace::<hash>";
 
   private isNre(issue: SavedIssue): boolean {
     const NRE = "NullReferenceException";

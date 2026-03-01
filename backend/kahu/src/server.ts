@@ -9,6 +9,7 @@ import {
   loadAllMotherIssues,
   loadMotherIssue as loadMotherIssueFromDisk,
 } from "./rules/storage.js";
+import { RULES } from "./rules/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ISSUES_DIR = join(__dirname, "..", "data", "issues");
@@ -461,6 +462,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const saved = await loadIssue(apiMatch[1]);
     if (!saved) return json(res, { error: "Not found" }, 404);
     return json(res, saved);
+  }
+
+  // API: list rules
+  if (url === "/api/rules") {
+    const rules = RULES.map((r) => ({ name: r.name, description: r.description, logic: r.logic }));
+    return json(res, rules);
   }
 
   // API: list mother issues

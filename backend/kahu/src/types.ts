@@ -239,6 +239,50 @@ export interface PollState {
   processedIssues: Record<string, ProcessedIssueState>;
 }
 
+// Resolved/archived issue type (from search API — includes statusDetails with actor + conditions)
+
+export interface SentryResolvedIssue extends SentryIssue {
+  substatus?:
+    | "archived_forever"
+    | "archived_until_escalating"
+    | "archived_until_condition_met"
+    | string;
+  statusDetails: {
+    // Resolved fields
+    inRelease?: string;
+    inNextRelease?: boolean;
+    inCommit?: { id: string };
+    actor?: {
+      id: string;
+      name: string;
+      email: string;
+    };
+    // Archived/ignore condition fields
+    ignoreCount?: number | null;
+    ignoreWindow?: number | null; // minutes
+    ignoreUserCount?: number | null;
+    ignoreUserWindow?: number | null; // minutes
+    ignoreUntil?: string | null; // ISO date
+    [key: string]: unknown;
+  };
+  annotations: Array<{
+    url: string;
+    displayName: string;
+  }>;
+}
+
+// Organization activity (status change events)
+
+export interface SentryActivity {
+  id: string;
+  type: string; // "set_ignored" | "set_resolved" | "set_unresolved" | ...
+  dateCreated: string;
+  issue?: SentryResolvedIssue;
+  project?: { id: string; name: string; slug: string };
+  user?: { id: string; name: string; email: string };
+  data?: Record<string, unknown>;
+}
+
 // Saved issue file format
 
 export interface SavedIssue {
