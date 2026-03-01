@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { log } from "./logger.js";
@@ -9,10 +9,10 @@ import {
   loadAllMotherIssues,
   loadMotherIssue as loadMotherIssueFromDisk,
 } from "./rules/storage.js";
+import { loadAllIssues, loadIssue } from "./storage.js";
 import { RULES } from "./rules/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ISSUES_DIR = join(__dirname, "..", "data", "issues");
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -56,35 +56,6 @@ function levelColor(level: string): string {
     case "info": return "#4b9fd5";
     case "debug": return "#8a8d91";
     default: return "#8a8d91";
-  }
-}
-
-async function loadAllIssues(): Promise<SavedIssue[]> {
-  let files: string[];
-  try {
-    files = await readdir(ISSUES_DIR);
-  } catch {
-    return [];
-  }
-  const jsonFiles = files.filter((f) => f.endsWith(".json"));
-  const issues: SavedIssue[] = [];
-  for (const file of jsonFiles) {
-    try {
-      const raw = await readFile(join(ISSUES_DIR, file), "utf-8");
-      issues.push(JSON.parse(raw) as SavedIssue);
-    } catch {
-      // skip corrupt files
-    }
-  }
-  return issues;
-}
-
-async function loadIssue(id: string): Promise<SavedIssue | null> {
-  try {
-    const raw = await readFile(join(ISSUES_DIR, `${id}.json`), "utf-8");
-    return JSON.parse(raw) as SavedIssue;
-  } catch {
-    return null;
   }
 }
 

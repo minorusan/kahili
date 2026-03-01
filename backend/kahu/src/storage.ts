@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,4 +76,24 @@ export async function loadIssue(issueId: string): Promise<SavedIssue | null> {
 
   const raw = await readFile(filePath, "utf-8");
   return JSON.parse(raw) as SavedIssue;
+}
+
+export async function loadAllIssues(): Promise<SavedIssue[]> {
+  let files: string[];
+  try {
+    files = await readdir(ISSUES_DIR);
+  } catch {
+    return [];
+  }
+  const jsonFiles = files.filter((f) => f.endsWith(".json"));
+  const issues: SavedIssue[] = [];
+  for (const file of jsonFiles) {
+    try {
+      const raw = await readFile(join(ISSUES_DIR, file), "utf-8");
+      issues.push(JSON.parse(raw) as SavedIssue);
+    } catch {
+      // skip corrupt files
+    }
+  }
+  return issues;
 }

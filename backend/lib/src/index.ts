@@ -1,8 +1,9 @@
 import "dotenv/config";
 import { incrementBuild } from "./build.js";
-import { ensureKahu } from "./kahu-manager.js";
+import { ensureKahu, shutdownKahu } from "./kahu-manager.js";
 import { startServer } from "./server.js";
 import { log } from "./logger.js";
+import { killAllAgents } from "./agent-spawn.js";
 
 const port = parseInt(process.env.KAHILI_PORT || "3401", 10);
 
@@ -23,3 +24,17 @@ log.info(`[kahili] Kahu running at PID ${kahuPid}`);
 
 // 4. Start HTTP server
 startServer(port);
+
+// 5. Exit cleanup — kill child processes on shutdown
+let exiting = false;
+function cleanup() {
+  if (exiting) return;
+  exiting = true;
+  log.info("[kahili] Shutting down — killing child processes...");
+  killAllAgents();
+  shutdownKahu();
+  setTimeout(() => process.exit(0), 3000);
+}
+
+process.on("SIGINT", cleanup);
+process.on("SIGTERM", cleanup);

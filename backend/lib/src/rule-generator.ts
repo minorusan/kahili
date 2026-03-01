@@ -6,8 +6,8 @@ import {
   existsSync,
   readdirSync,
   unlinkSync,
-  watchFile,
-  unwatchFile,
+  watch,
+  type FSWatcher,
 } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,7 @@ interface RuleGeneration {
 
 let current: RuleGeneration | null = null;
 let agentProcess: ChildProcess | null = null;
+let statusWatcher: FSWatcher | null = null;
 
 export function getCurrentRuleGeneration(): RuleGeneration | null {
   if (current && current.status === "running") {
@@ -185,7 +186,8 @@ export async function startRuleGeneration(
   const child = spawnAgent(prompt, RULES_DIR);
   agentProcess = child;
 
-  const pid = child.pid!;
+  if (!child.pid) throw new Error("Failed to spawn rule generation agent");
+  const pid = child.pid;
 
   current = {
     prompt: userPrompt,
@@ -220,14 +222,14 @@ export async function startRuleGeneration(
     }
   };
 
-  watchFile(statusPath, { interval: 1000 }, onFileChange);
+  statusWatcher = watch(statusPath, onFileChange);
 
   child.on("exit", async (code, signal) => {
     agentProcess = null;
-    unwatchFile(statusPath);
-
-    // Kill the whole process tree defensively
-    killProcessTree(pid);
+    if (statusWatcher) {
+      statusWatcher.close();
+      statusWatcher = null;
+    }
 
     // Read final status
     let finalStatus = "";
@@ -281,10 +283,16 @@ export function cancelRuleGeneration(): boolean {
   }
 
   const pid = current.pid;
-  killProcessTree(pid);
+
   if (agentProcess) {
+    // SIGTERM first for graceful shutdown
     agentProcess.kill("SIGTERM");
   }
+
+  // Escalate with killProcessTree after delay
+  setTimeout(() => {
+    killProcessTree(pid);
+  }, 2000);
 
   current.status = "failed";
   current.completedAt = new Date().toISOString();

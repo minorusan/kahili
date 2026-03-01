@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { execFile } from "node:child_process";
 import { readFile, stat, readdir, unlink } from "node:fs/promises";
-import { join, extname } from "node:path";
+import path from "node:path";
+const { join, extname, resolve } = path;
 import { readBuild } from "./build.js";
 import { readPidFile } from "./kahu-manager.js";
 import { applyKahuSettings, readKahuSettings, type KahuSettings } from "./settings.js";
@@ -36,11 +37,22 @@ function json(res: ServerResponse, data: unknown, status = 200): void {
   res.end(JSON.stringify(data, null, 2));
 }
 
+const MAX_BODY = 1024 * 1024; // 1MB
+
 function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveBody, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString()));
+    let totalSize = 0;
+    req.on("data", (chunk: Buffer) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolveBody(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
 }
@@ -74,18 +86,24 @@ function gitExec(args: string[], cwd: string): Promise<string> {
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<boolean> {
   // Strip query parameters before resolving file path
   const pathOnly = urlPath.split("?")[0];
-  // Prevent path traversal
-  const safePath = pathOnly.replace(/\.\./g, "").replace(/\/+/g, "/");
 
   // Block service-worker and manifest requests — never serve these
   const blocked = ["/flutter_service_worker.js", "/manifest.json"];
-  if (blocked.includes(safePath)) {
+  if (blocked.includes(pathOnly)) {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not found");
     return true;
   }
 
-  let filePath = join(WEB_ROOT, safePath === "/" ? "index.html" : safePath);
+  // Prevent path traversal with proper resolution
+  const resolved = resolve(WEB_ROOT, "." + pathOnly);
+  if (!resolved.startsWith(WEB_ROOT)) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+    return true;
+  }
+
+  let filePath = pathOnly === "/" ? join(WEB_ROOT, "index.html") : resolved;
 
   try {
     const s = await stat(filePath);
@@ -249,7 +267,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (req.method === "GET" && url === "/api/reports/status") {
     const investigationsDir = join(import.meta.dirname!, "..", "..", "docs", "investigations");
     try {
-      const { readdir } = await import("node:fs/promises");
       const files = await readdir(investigationsDir);
       const ids = files
         .filter((f) => f.endsWith(".md"))

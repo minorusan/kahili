@@ -188,6 +188,8 @@ async function generateReport(client: SentryClient): Promise<void> {
   log.info(`[Reporter] Report written to ${reportPath}`);
 }
 
+let reporterInterval: ReturnType<typeof setInterval> | null = null;
+
 export async function startReporter(
   client: SentryClient,
   intervalSeconds: number
@@ -219,5 +221,13 @@ export async function startReporter(
   await runCycle();
 
   // Then on interval (overlap-safe)
-  setInterval(runCycle, intervalSeconds * 1000);
+  reporterInterval = setInterval(runCycle, intervalSeconds * 1000);
+}
+
+export function stopReporter(): void {
+  if (reporterInterval) {
+    clearInterval(reporterInterval);
+    reporterInterval = null;
+    log.info("[Reporter] Stopped.");
+  }
 }

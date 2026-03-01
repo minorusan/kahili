@@ -4,8 +4,8 @@ import {
   writeFileSync,
   mkdirSync,
   existsSync,
-  watchFile,
-  unwatchFile,
+  watch,
+  type FSWatcher,
 } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,7 @@ interface Investigation {
 
 let current: Investigation | null = null;
 let agentProcess: ChildProcess | null = null;
+let reportWatcher: FSWatcher | null = null;
 
 export function getCurrentInvestigation(): Investigation | null {
   // Re-read report file for freshest status
@@ -244,7 +245,8 @@ export async function startInvestigation(
   const child = spawnAgent(prompt, repoPath);
   agentProcess = child;
 
-  const pid = child.pid!;
+  if (!child.pid) throw new Error("Failed to spawn investigation agent");
+  const pid = child.pid;
 
   current = {
     motherIssueId,
@@ -288,14 +290,14 @@ export async function startInvestigation(
     }
   };
 
-  watchFile(reportPath, { interval: 1000 }, onFileChange);
+  reportWatcher = watch(reportPath, onFileChange);
 
   child.on("exit", (code, signal) => {
     agentProcess = null;
-    unwatchFile(reportPath);
-
-    // Defensively kill the whole process tree (script + claude)
-    killProcessTree(pid);
+    if (reportWatcher) {
+      reportWatcher.close();
+      reportWatcher = null;
+    }
 
     // Read final report
     let finalReport = "";
@@ -326,26 +328,29 @@ export async function startInvestigation(
 }
 
 export function cancelInvestigation(): boolean {
-  if (!current || current.status !== "running" || !agentProcess) {
-    // Try killing by PID even if agentProcess ref is lost
-    if (current?.status === "running" && current.pid) {
-      try {
-        process.kill(current.pid, "SIGTERM");
-        current.status = "failed";
-        current.completedAt = new Date().toISOString();
-        broadcast("investigation:completed", {
-          motherIssueId: current.motherIssueId,
-          status: "failed",
-          report: current.lastReport + "\n\n---\n*Investigation cancelled by user.*",
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    }
+  if (!current || current.status !== "running") {
     return false;
   }
 
-  agentProcess.kill("SIGTERM");
+  if (agentProcess) {
+    // SIGTERM first for graceful shutdown
+    agentProcess.kill("SIGTERM");
+    // Escalate with killProcessTree after delay
+    const pid = current.pid;
+    setTimeout(() => {
+      killProcessTree(pid);
+    }, 2000);
+  } else if (current.pid) {
+    // agentProcess ref lost — try killing by PID
+    try {
+      process.kill(current.pid, "SIGTERM");
+      setTimeout(() => {
+        killProcessTree(current!.pid);
+      }, 2000);
+    } catch {
+      return false;
+    }
+  }
+
   return true;
 }

@@ -1,8 +1,11 @@
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execSync, execFile, spawn, type ChildProcess } from "node:child_process";
 import { log } from "./logger.js";
+
+/** Module-level reference to the kahu child process for signal forwarding. */
+let kahuChild: ChildProcess | null = null;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(__dirname, "../..");
@@ -67,10 +70,28 @@ function killPortOccupants(port: number): void {
   }
 }
 
-export function buildKahu(): void {
+export function buildKahu(): Promise<void> {
   log.info("[kahili] Building kahu...");
-  execSync("npm run build", { cwd: KAHU_DIR, stdio: "inherit" });
-  log.info("[kahili] Kahu build complete.");
+  return new Promise((resolve, reject) => {
+    execFile("npm", ["run", "build"], { cwd: KAHU_DIR }, (err, stdout, stderr) => {
+      if (stdout) {
+        for (const line of stdout.split("\n").filter(Boolean)) {
+          log.info(`[kahu:build] ${line}`);
+        }
+      }
+      if (stderr) {
+        for (const line of stderr.split("\n").filter(Boolean)) {
+          log.error(`[kahu:build:err] ${line}`);
+        }
+      }
+      if (err) {
+        reject(err);
+        return;
+      }
+      log.info("[kahili] Kahu build complete.");
+      resolve();
+    });
+  });
 }
 
 export function spawnKahu(): ChildProcess {
@@ -79,6 +100,8 @@ export function spawnKahu(): ChildProcess {
     stdio: "pipe",
     env: { ...process.env },
   });
+
+  kahuChild = child;
 
   child.stdout?.on("data", (data: Buffer) => {
     for (const line of data.toString().split("\n").filter(Boolean)) {
@@ -93,10 +116,44 @@ export function spawnKahu(): ChildProcess {
   });
 
   child.on("exit", (code, signal) => {
+    kahuChild = null;
     log.info(`[kahili] Kahu exited (code=${code}, signal=${signal})`);
   });
 
   return child;
+}
+
+/** Send SIGTERM to kahu child, escalate to SIGKILL after 2s. */
+export function shutdownKahu(): void {
+  if (!kahuChild) return;
+  const child = kahuChild;
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    return; // already dead
+  }
+  setTimeout(() => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // already dead
+    }
+  }, 2000);
+}
+
+/** Poll kahu's port until it responds or timeout. */
+async function waitForKahuReady(port: number, timeoutMs: number = 10000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${port}/api/issues`);
+      if (res.ok) return true;
+    } catch {
+      // not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }
 
 export async function restartKahu(currentBuild: number): Promise<number> {
@@ -117,13 +174,21 @@ export async function restartKahu(currentBuild: number): Promise<number> {
     // already gone
   }
 
-  buildKahu();
+  await buildKahu();
 
   const child = spawnKahu();
-  const pid = child.pid!;
+  if (!child.pid) throw new Error("Failed to spawn kahu process");
+  const pid = child.pid;
 
   writePidFile(pid, currentBuild);
   log.info(`[kahili] Kahu restarted (PID ${pid}, build ${currentBuild}).`);
+
+  const ready = await waitForKahuReady(kahuPort);
+  if (ready) {
+    log.info("[kahili] Kahu health check passed.");
+  } else {
+    log.error("[kahili] Kahu health check timed out — process may not be serving.");
+  }
 
   return pid;
 }
@@ -163,15 +228,23 @@ export async function ensureKahu(currentBuild: number): Promise<number> {
   const kahuPort = parseInt(process.env.WEB_PORT || "3456", 10);
   killPortOccupants(kahuPort);
 
-  buildKahu();
+  await buildKahu();
 
   const child = spawnKahu();
-  const pid = child.pid!;
+  if (!child.pid) throw new Error("Failed to spawn kahu process");
+  const pid = child.pid;
 
   writePidFile(pid, currentBuild);
   log.info(
     `[kahili] Kahu spawned (PID ${pid}, build ${currentBuild}).`
   );
+
+  const ready = await waitForKahuReady(kahuPort);
+  if (ready) {
+    log.info("[kahili] Kahu health check passed.");
+  } else {
+    log.error("[kahili] Kahu health check timed out — process may not be serving.");
+  }
 
   return pid;
 }

@@ -44,27 +44,36 @@ export class SentryClient {
 
   private async request(endpoint: string): Promise<Response> {
     const url = `${BASE_URL}${endpoint}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-      },
-    });
+    const maxRetries = 5;
 
-    if (res.status === 429) {
-      const retryAfter = parseInt(res.headers.get("Retry-After") || "60", 10);
-      log.warn(`[Sentry] Rate limited. Retrying after ${retryAfter}s...`);
-      await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-      return this.request(endpoint);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+        },
+      });
+
+      if (res.status === 429) {
+        if (attempt >= maxRetries) {
+          throw new Error(`Sentry API rate limited after ${maxRetries} retries: ${endpoint}`);
+        }
+        const retryAfter = parseInt(res.headers.get("Retry-After") || "60", 10);
+        log.warn(`[Sentry] Rate limited (attempt ${attempt + 1}/${maxRetries}). Retrying after ${retryAfter}s...`);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        continue;
+      }
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(
+          `Sentry API error ${res.status}: ${res.statusText} — ${body}`
+        );
+      }
+
+      return res;
     }
 
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(
-        `Sentry API error ${res.status}: ${res.statusText} — ${body}`
-      );
-    }
-
-    return res;
+    throw new Error(`Sentry API request failed after ${maxRetries} retries: ${endpoint}`);
   }
 
   // =========================================================================

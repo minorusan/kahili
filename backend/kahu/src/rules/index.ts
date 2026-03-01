@@ -1,7 +1,4 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Rule, type MotherIssue } from "./rule.js";
 import { NreRule } from "./nre-rule.js";
 import { MilestoneErrorRule } from "./milestone-error-rule.js";
@@ -15,11 +12,9 @@ import {
   loadAllMotherIssues,
   ensureMotherIssuesDir,
 } from "./storage.js";
+import { loadAllIssues } from "../storage.js";
 import { log } from "../logger.js";
 import type { SavedIssue } from "../types.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ISSUES_DIR = join(__dirname, "..", "..", "data", "issues");
 
 export const RULES: Rule[] = [new NreRule(), new MilestoneErrorRule(), new AssetDownloadRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule()];
 
@@ -87,27 +82,6 @@ const SEVERITY_ORDER: Record<string, number> = {
 
 function highestLevel(a: string, b: string): string {
   return (SEVERITY_ORDER[a] ?? 0) >= (SEVERITY_ORDER[b] ?? 0) ? a : b;
-}
-
-async function loadAllIssues(): Promise<SavedIssue[]> {
-  let files: string[];
-  try {
-    files = await readdir(ISSUES_DIR);
-  } catch {
-    return [];
-  }
-
-  const jsonFiles = files.filter((f) => f.endsWith(".json"));
-  const issues: SavedIssue[] = [];
-  for (const file of jsonFiles) {
-    try {
-      const raw = await readFile(join(ISSUES_DIR, file), "utf-8");
-      issues.push(JSON.parse(raw) as SavedIssue);
-    } catch {
-      // skip corrupt files
-    }
-  }
-  return issues;
 }
 
 export function runRules(issues: SavedIssue[]): MotherIssue[] {

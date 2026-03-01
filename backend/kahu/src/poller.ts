@@ -3,6 +3,7 @@ import type { ProcessedIssueState } from "./types.js";
 import { loadState, saveState, saveIssue, ensureDataDirs } from "./storage.js";
 import { log } from "./logger.js";
 import { processRules } from "./rules/index.js";
+import { stopReporter } from "./reporter.js";
 
 const DEFAULT_ALERT_RULE_NAME = "Client Errors";
 
@@ -30,10 +31,12 @@ export async function startPolling(
   process.on("SIGINT", () => {
     log.info("[Poll] SIGINT received, finishing current cycle...");
     running = false;
+    stopReporter();
   });
   process.on("SIGTERM", () => {
     log.info("[Poll] SIGTERM received, finishing current cycle...");
     running = false;
+    stopReporter();
   });
 
   const alertRuleName = config.alertRuleName || DEFAULT_ALERT_RULE_NAME;

@@ -1,6 +1,31 @@
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { log } from "./logger.js";
 
+/** All currently-running agent child processes. */
+const trackedChildren = new Set<ChildProcess>();
+
+/** Kill all tracked agent processes (SIGTERM, then SIGKILL after 2s). */
+export function killAllAgents(): void {
+  for (const child of trackedChildren) {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // already dead
+    }
+  }
+  if (trackedChildren.size > 0) {
+    setTimeout(() => {
+      for (const child of trackedChildren) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already dead
+        }
+      }
+    }, 2000);
+  }
+}
+
 /**
  * Kill a process and all its children (the whole process group tree).
  * Used to clean up script + claude agent after completion.
@@ -38,6 +63,11 @@ export function spawnAgent(prompt: string, cwd: string): ChildProcess {
       env: agentEnv,
     }
   );
+
+  trackedChildren.add(child);
+  child.on("exit", () => {
+    trackedChildren.delete(child);
+  });
 
   return child;
 }
