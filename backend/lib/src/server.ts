@@ -14,6 +14,193 @@ import { log } from "./logger.js";
 // Flutter web build directory (two levels up from dist/ to repo root, then client/build/web)
 const WEB_ROOT = join(import.meta.dirname!, "..", "..", "..", "client", "build", "web");
 
+/** Cache-bust token derived from build output mtimes. Computed once at startup. */
+let cacheBustToken = Date.now().toString(36);
+
+/**
+ * Preloader HTML: shows icon + name, nukes all caches, then boots Flutter.
+ * This page is generated server-side so it's never stale.
+ */
+function buildPreloaderHtml(): string {
+  const v = cacheBustToken;
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <base href="/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kahili</title>
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+
+    body {
+      background: #06060A;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* ── ambient background glow ── */
+    .ambient {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 600px 400px at 50% 45%, rgba(255,109,0,0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 300px 300px at 52% 40%, rgba(0,229,255,0.03) 0%, transparent 60%);
+      animation: ambientPulse 4s ease-in-out infinite;
+    }
+    @keyframes ambientPulse {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50%      { opacity: 1;   transform: scale(1.05); }
+    }
+
+    /* ── main container ── */
+    #preloader {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+      animation: enterPreloader 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+    }
+    @keyframes enterPreloader {
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    #preloader.fade {
+      animation: exitPreloader 0.5s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+    }
+    @keyframes exitPreloader {
+      to { opacity: 0; transform: translateY(-10px) scale(1.02); }
+    }
+
+    /* ── icon wrapper with glow rings ── */
+    .icon-wrap {
+      position: relative;
+      width: 72px;
+      height: 128px;
+    }
+
+    /* outer glow */
+    .icon-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -24px -30px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(255,109,0,0.15) 0%, rgba(255,109,0,0) 70%);
+      animation: glowPulse 3s ease-in-out infinite;
+    }
+
+    /* inner cyan glow */
+    .icon-wrap::after {
+      content: '';
+      position: absolute;
+      inset: -10px -16px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(0,229,255,0.08) 0%, transparent 65%);
+      animation: glowPulse 3s ease-in-out 1.5s infinite;
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { transform: scale(1);    opacity: 0.5; }
+      50%      { transform: scale(1.15); opacity: 1; }
+    }
+
+    .icon-wrap img {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      z-index: 1;
+      filter: drop-shadow(0 0 20px rgba(255,109,0,0.3))
+              drop-shadow(0 0 40px rgba(255,109,0,0.1));
+      animation: iconBreathe 3s ease-in-out infinite;
+    }
+    @keyframes iconBreathe {
+      0%, 100% { transform: scale(1);     filter: drop-shadow(0 0 20px rgba(255,109,0,0.3)) drop-shadow(0 0 40px rgba(255,109,0,0.1)); }
+      50%      { transform: scale(1.04);   filter: drop-shadow(0 0 28px rgba(255,109,0,0.45)) drop-shadow(0 0 50px rgba(255,109,0,0.15)); }
+    }
+
+    /* ── app name ── */
+    .name {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, #E8E8F0 0%, #FF9100 50%, #E8E8F0 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmerText 4s ease-in-out infinite;
+    }
+    @keyframes shimmerText {
+      0%, 100% { background-position: 0% center; }
+      50%      { background-position: 100% center; }
+    }
+
+    /* ── loading bar ── */
+    .loader {
+      width: 120px;
+      height: 2px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 1px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .loader-bar {
+      height: 100%;
+      width: 40%;
+      border-radius: 1px;
+      background: linear-gradient(90deg, transparent, #FF6D00, #00E5FF, transparent);
+      animation: loaderSlide 1.6s ease-in-out infinite;
+    }
+    @keyframes loaderSlide {
+      0%   { transform: translateX(-120%); }
+      100% { transform: translateX(350%); }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient"></div>
+  <div id="preloader">
+    <div class="icon-wrap">
+      <img src="assets/assets/kahili_feather_icon_cropped.png" alt="">
+    </div>
+    <div class="name">Kahili</div>
+    <div class="loader"><div class="loader-bar"></div></div>
+  </div>
+  <script>
+    (async function() {
+      if ('serviceWorker' in navigator) {
+        var regs = await navigator.serviceWorker.getRegistrations();
+        for (var r of regs) await r.unregister();
+      }
+      if ('caches' in window) {
+        var names = await caches.keys();
+        for (var n of names) await caches.delete(n);
+      }
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      document.getElementById('preloader').classList.add('fade');
+      setTimeout(function() {
+        var s = document.createElement('script');
+        s.src = 'flutter_bootstrap.js?v=${v}';
+        s.async = true;
+        document.head.appendChild(s);
+      }, 500);
+    })();
+  </script>
+</body>
+</html>`;
+}
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
@@ -114,17 +301,53 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<boolea
   }
 
   try {
-    const data = await readFile(filePath);
+    let data = await readFile(filePath);
     const ext = extname(filePath);
     const contentType = MIME_TYPES[ext] || "application/octet-stream";
     const headers: Record<string, string> = {
       "Content-Type": contentType,
       "Cache-Control": "no-cache, no-store, must-revalidate",
     };
-    // Wipe browser HTTP cache on every page load so stale JS is never served
+
+    // index.html: serve preloader that nukes caches then boots Flutter
     if (filePath.endsWith("index.html")) {
-      headers["Clear-Site-Data"] = "\"cache\", \"storage\"";
+      headers["Clear-Site-Data"] = '"cache"';
+      data = Buffer.from(buildPreloaderHtml(), "utf-8");
     }
+
+    // Inject cache-bust token into flutter_bootstrap.js so main.dart.js URL changes too
+    if (filePath.endsWith("flutter_bootstrap.js")) {
+      let js = data.toString("utf-8");
+      js = js.replace(
+        '"main.dart.js"',
+        `"main.dart.js?v=${cacheBustToken}"`
+      );
+      data = Buffer.from(js, "utf-8");
+    }
+
+    // Bust font/asset URLs inside FontManifest.json so fonts always reload
+    if (filePath.endsWith("FontManifest.json")) {
+      let manifest = data.toString("utf-8");
+      manifest = manifest.replace(
+        /("asset"\s*:\s*"[^"]+)/g,
+        `$1?v=${cacheBustToken}`
+      );
+      data = Buffer.from(manifest, "utf-8");
+    }
+
+    // Bust asset URLs inside AssetManifest files
+    if (filePath.includes("AssetManifest")) {
+      let manifest = data.toString("utf-8");
+      // For .json variant, bust URL strings
+      if (filePath.endsWith(".json")) {
+        manifest = manifest.replace(
+          /("assets\/[^"]+)/g,
+          `$1?v=${cacheBustToken}`
+        );
+      }
+      data = Buffer.from(manifest, "utf-8");
+    }
+
     res.writeHead(200, headers);
     res.end(data);
     return true;
@@ -447,7 +670,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   json(res, { error: "not found" }, 404);
 }
 
-export function startServer(port: number): void {
+export async function startServer(port: number): Promise<void> {
+  // Compute cache-bust token from Flutter build output mtime
+  try {
+    const mainJs = join(WEB_ROOT, "main.dart.js");
+    const s = await stat(mainJs);
+    cacheBustToken = s.mtimeMs.toString(36);
+    log.info(`[kahili] Cache-bust token: ${cacheBustToken}`);
+  } catch {
+    log.warn("[kahili] Could not stat main.dart.js — using startup timestamp for cache-bust");
+  }
+
   const server = createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
       log.error("[kahili] HTTP handler error:", err);

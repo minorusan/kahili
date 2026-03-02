@@ -11,3 +11,16 @@ void downloadTextFile(String content, String filename) {
     ..click();
   html.Url.revokeObjectUrl(url);
 }
+
+/// Copy text to clipboard using legacy execCommand (works on HTTP).
+bool copyToClipboard(String text) {
+  final ta = html.TextAreaElement();
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  html.document.body?.append(ta);
+  ta.select();
+  final ok = html.document.execCommand('copy');
+  ta.remove();
+  return ok;
+}

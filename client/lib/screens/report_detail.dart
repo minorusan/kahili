@@ -85,6 +85,12 @@ class _ReportDetailState extends State<ReportDetail> {
           }
         }
 
+        String latestComment = '';
+        if (cells.length >= 7) {
+          latestComment = cells[6].replaceAll(r'\|', '|').trim();
+          if (latestComment == '—') latestComment = '';
+        }
+
         rows.add(_ReportRow(
           issueId: issueId,
           issueUrl: issueUrl,
@@ -94,6 +100,7 @@ class _ReportDetailState extends State<ReportDetail> {
           conditions: cells[4],
           jiraId: jiraId,
           jiraUrl: jiraUrl,
+          latestComment: latestComment,
         ));
       }
     }
@@ -104,9 +111,67 @@ class _ReportDetailState extends State<ReportDetail> {
     });
   }
 
+  String _buildSlackText() {
+    final buf = StringBuffer();
+    buf.writeln('**Daily Issues Report — ${widget.date}**');
+    buf.writeln('Resolved: $_resolvedCount | Archived: $_archivedCount | Total: ${_resolvedCount + _archivedCount}');
+    buf.writeln();
+
+    for (var i = 0; i < _rows.length; i++) {
+      final row = _rows[i];
+      final num = i + 1;
+
+      // Issue line: number, linked issue ID, title in code block
+      buf.write('$num. ');
+      if (row.issueUrl.isNotEmpty) {
+        buf.write('[${row.issueId}](${row.issueUrl})');
+      } else {
+        buf.write(row.issueId);
+      }
+      if (row.issueTitle.isNotEmpty) {
+        buf.write(': `${row.issueTitle}`');
+      }
+      buf.writeln();
+
+      // Details line
+      final details = <String>[];
+      details.add(row.action);
+      if (row.actor.isNotEmpty && row.actor != '—') {
+        details.add('by ${row.actor}');
+      }
+      if (row.conditions.isNotEmpty && row.conditions != '—') {
+        details.add(row.conditions);
+      }
+      buf.writeln('    ${details.join(' · ')}');
+
+      // Jira link
+      if (row.jiraId.isNotEmpty) {
+        buf.writeln('    Jira: [${row.jiraId}](${row.jiraUrl})');
+      }
+
+      // Latest comment in italic
+      if (row.latestComment.isNotEmpty) {
+        buf.writeln('    _"${row.latestComment}"_');
+      }
+
+      if (i < _rows.length - 1) buf.writeln();
+    }
+
+    return buf.toString();
+  }
+
   void _share() {
-    if (_rawMarkdown == null) return;
-    downloadTextFile(_rawMarkdown!, 'report-${widget.date}.md');
+    if (_rows.isEmpty) return;
+    final text = _buildSlackText();
+    final ok = copyToClipboard(text);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok ? 'Copied to clipboard' : 'Copy failed'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
@@ -120,12 +185,12 @@ class _ReportDetailState extends State<ReportDetail> {
           child: Container(height: 1, color: KahiliColors.border),
         ),
       ),
-      floatingActionButton: _rawMarkdown != null
+      floatingActionButton: _rows.isNotEmpty
           ? FloatingActionButton(
               onPressed: _share,
               backgroundColor: KahiliColors.flame,
               foregroundColor: Colors.black,
-              child: const Icon(Icons.download),
+              child: const Icon(Icons.copy),
             )
           : null,
       body: _loading
@@ -289,6 +354,24 @@ class _ReportDetailState extends State<ReportDetail> {
                 ],
               ),
             ),
+
+          if (row.latestComment.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.comment, size: 14, color: KahiliColors.textTertiary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      row.latestComment,
+                      style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: KahiliColors.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -311,6 +394,7 @@ class _ReportRow {
   final String conditions;
   final String jiraId;
   final String jiraUrl;
+  final String latestComment;
 
   _ReportRow({
     required this.issueId,
@@ -321,5 +405,6 @@ class _ReportRow {
     required this.conditions,
     required this.jiraId,
     required this.jiraUrl,
+    this.latestComment = '',
   });
 }

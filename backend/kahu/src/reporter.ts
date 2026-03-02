@@ -76,6 +76,7 @@ interface ReportRow {
   issue: SentryResolvedIssue;
   action: "Resolved" | "Archived";
   actor: string;
+  latestComment: string;
 }
 
 function buildReport(date: string, rows: ReportRow[]): string {
@@ -95,16 +96,17 @@ function buildReport(date: string, rows: ReportRow[]): string {
     return lines.join("\n");
   }
 
-  lines.push("| # | Issue | Action | By | Conditions | Jira |");
-  lines.push("|---|-------|--------|----|------------|------|");
+  lines.push("| # | Issue | Action | By | Conditions | Jira | Comment |");
+  lines.push("|---|-------|--------|----|------------|------|---------|");
 
   let idx = 1;
   for (const row of rows) {
     const title = row.issue.title.replace(/\|/g, "\\|").slice(0, 100);
     const sentryLink = `[${row.issue.shortId}](${row.issue.permalink})`;
     const jira = getJiraLink(row.issue);
+    const comment = row.latestComment.replace(/\|/g, "\\|").replace(/\n/g, " ");
     lines.push(
-      `| ${idx++} | ${sentryLink}: ${title} | ${row.action} | ${row.actor} | ${formatConditions(row.issue)} | ${jira} |`
+      `| ${idx++} | ${sentryLink}: ${title} | ${row.action} | ${row.actor} | ${formatConditions(row.issue)} | ${jira} | ${comment} |`
     );
   }
 
@@ -146,8 +148,12 @@ async function findChangedToday(
 
       if (!match) continue;
 
+      // Extract latest note/comment from activity feed
+      const latestNote = activities.find((a) => a.type === "note");
+      const latestComment = (latestNote?.data as { text?: string })?.text || "";
+
       const actor = match.user?.name || match.user?.email || "—";
-      rows.push({ issue, action, actor });
+      rows.push({ issue, action, actor, latestComment });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       log.warn(

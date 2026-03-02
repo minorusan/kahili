@@ -7,6 +7,7 @@ import { UnityWebRequestRule } from "./unity-webrequest-rule.js";
 import { SkullIconRule } from "./skull-icon-rule.js";
 import { HttpClientErrorStartRule } from "./http-client-error-start-rule.js";
 import { SkuIconRule } from "./sku-icon-rule.js";
+import { LiveopIdRule } from "./liveop-id-rule.js";
 import {
   saveMotherIssue,
   loadAllMotherIssues,
@@ -16,7 +17,7 @@ import { loadAllIssues } from "../storage.js";
 import { log } from "../logger.js";
 import type { SavedIssue } from "../types.js";
 
-export const RULES: Rule[] = [new NreRule(), new MilestoneErrorRule(), new AssetDownloadRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule()];
+export const RULES: Rule[] = [new NreRule(), new MilestoneErrorRule(), new AssetDownloadRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule(), new LiveopIdRule()];
 
 /**
  * Parse Unity/C# stack frames from a message string.
