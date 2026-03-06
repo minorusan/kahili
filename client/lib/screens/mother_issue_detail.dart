@@ -8,6 +8,7 @@ import '../models/mother_issue.dart';
 import '../theme/kahili_theme.dart';
 import '../utils/web_download.dart';
 import 'investigate_dialog.dart';
+import 'archive_dialog.dart';
 
 class MotherIssueDetail extends StatefulWidget {
   final MotherIssue issue;
@@ -24,6 +25,9 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
 
   InvestigationStatus? _investigationStatus;
   Timer? _pollTimer;
+
+  // Archive selection
+  final Set<int> _selectedChildIndices = {};
 
   // Rule regeneration
   late TextEditingController _ruleController;
@@ -232,6 +236,9 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     buf.writeln('| Rule | `${issue.ruleName}` |');
     buf.writeln('| Error Type | `${issue.errorType}` |');
     buf.writeln('| Children | ${issue.childIssueIds.length} |');
+    if (issue.firstSeenRelease != null) {
+      buf.writeln('| First Seen Release | `${issue.firstSeenRelease}` |');
+    }
     buf.writeln();
 
     // Stack trace
@@ -290,8 +297,15 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     buf.writeln();
     buf.writeln('`${issue.groupingKey}`');
 
-    final filename = 'issue-${issue.id}.md';
-    downloadTextFile(buf.toString(), filename);
+    final ok = copyToClipboard(buf.toString());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok ? 'Copied to clipboard' : 'Copy failed'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
   }
 
   @override
@@ -332,7 +346,7 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
         onPressed: _shareAsMarkdown,
         backgroundColor: KahiliColors.flame,
         foregroundColor: Colors.black,
-        child: const Icon(Icons.download),
+        child: const Icon(Icons.copy_all),
       ),
       body: SelectionArea(child: ListView(
         padding: const EdgeInsets.all(16),
@@ -344,6 +358,34 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
           // ── Metrics ────────────────────────────────────────────────
           _metricsRow(),
           const SizedBox(height: 16),
+
+          // ── Timeline ───────────────────────────────────────────────
+          _section('Timeline'),
+          _darkCard(
+            child: Column(
+              children: [
+                _timelineRow('First seen', _formatDate(widget.issue.metrics.firstSeen), KahiliColors.emerald),
+                if (widget.issue.firstSeenRelease != null) ...[
+                  _divider(),
+                  _timelineRow('First version', widget.issue.firstSeenRelease!, KahiliColors.cyan),
+                ],
+                _divider(),
+                _timelineRow('Last seen', _formatDate(widget.issue.metrics.lastSeen), KahiliColors.flame),
+                _divider(),
+                _timelineRow('Created', _formatDate(widget.issue.createdAt), KahiliColors.textTertiary),
+                _divider(),
+                _timelineRow('Updated', _formatDate(widget.issue.updatedAt), KahiliColors.textTertiary),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── Stack trace ────────────────────────────────────────────
+          if (widget.issue.stackFrames != null && widget.issue.stackFrames!.isNotEmpty) ...[
+            _section('Stack Trace'),
+            _stackTraceBlock(),
+            const SizedBox(height: 16),
+          ],
 
           // ── Rule section ────────────────────────────────────────────
           Builder(builder: (_) {
@@ -359,59 +401,47 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
           _investigationSection(isInvestigating),
           const SizedBox(height: 16),
 
-          // ── Timeline ───────────────────────────────────────────────
-          _section('Timeline'),
-          _darkCard(
-            child: Column(
-              children: [
-                _timelineRow('First seen', _formatDate(widget.issue.metrics.firstSeen), KahiliColors.emerald),
-                _divider(),
-                _timelineRow('Last seen', _formatDate(widget.issue.metrics.lastSeen), KahiliColors.flame),
-                _divider(),
-                _timelineRow('Created', _formatDate(widget.issue.createdAt), KahiliColors.textTertiary),
-                _divider(),
-                _timelineRow('Updated', _formatDate(widget.issue.updatedAt), KahiliColors.textTertiary),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // ── Sentry links ───────────────────────────────────────────
+          // ── Child issues (selectable) ─────────────────────────────
           if (widget.issue.sentryLinks.isNotEmpty) ...[
-            _section('Sentry Links'),
-            _darkCard(
-              child: Column(
-                children: [
-                  for (int i = 0; i < widget.issue.sentryLinks.length; i++) ...[
-                    if (i > 0) _divider(),
-                    _linkRow(context, widget.issue.sentryLinks[i], Icons.open_in_new),
-                  ],
-                ],
-              ),
-            ),
+            _childIssuesSection(),
             const SizedBox(height: 16),
           ],
 
           // ── Smartlook sessions ─────────────────────────────────────
           if (widget.issue.smartlookUrls.isNotEmpty) ...[
-            _section('Smartlook Sessions'),
-            _darkCard(
-              child: Column(
-                children: [
-                  for (int i = 0; i < widget.issue.smartlookUrls.length; i++) ...[
-                    if (i > 0) _divider(),
-                    _linkRow(context, widget.issue.smartlookUrls[i], Icons.play_circle_outline),
+            Container(
+              decoration: BoxDecoration(
+                color: KahiliColors.surfaceLight,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: KahiliColors.border),
+              ),
+              child: Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+                  childrenPadding: EdgeInsets.zero,
+                  collapsedIconColor: KahiliColors.textTertiary,
+                  iconColor: KahiliColors.textTertiary,
+                  title: Row(
+                    children: [
+                      const Icon(Icons.play_circle_outline, size: 16, color: KahiliColors.cyanMuted),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${widget.issue.smartlookUrls.length} Smartlook session${widget.issue.smartlookUrls.length == 1 ? '' : 's'}',
+                        style: const TextStyle(fontSize: 13, color: KahiliColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    const Divider(height: 1, color: KahiliColors.border),
+                    for (int i = 0; i < widget.issue.smartlookUrls.length; i++) ...[
+                      if (i > 0) _divider(),
+                      _linkRow(context, widget.issue.smartlookUrls[i], Icons.play_circle_outline),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-          ],
-
-          // ── Stack trace ────────────────────────────────────────────
-          if (widget.issue.stackFrames != null && widget.issue.stackFrames!.isNotEmpty) ...[
-            _section('Stack Trace'),
-            _stackTraceBlock(),
             const SizedBox(height: 16),
           ],
 
@@ -445,6 +475,289 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
         ],
       )),
     );
+  }
+
+  // ── Child issues section ────────────────────────────────────────
+
+  Widget _childIssuesSection() {
+    final issue = widget.issue;
+    final unresolvedCount = issue.childStatuses
+        .where((s) => s == 'unresolved')
+        .length;
+    final hasSelection = _selectedChildIndices.isNotEmpty;
+
+    // Split into unresolved and resolved/archived
+    final unresolvedIndices = <int>[];
+    final archivedIndices = <int>[];
+    for (int i = 0; i < issue.sentryLinks.length; i++) {
+      if (i < issue.childStatuses.length && issue.childStatuses[i] != 'unresolved') {
+        archivedIndices.add(i);
+      } else {
+        unresolvedIndices.add(i);
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header row with select-all for unresolved
+        Row(
+          children: [
+            Expanded(child: _section('Child Issues')),
+            if (unresolvedCount > 0)
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    final allUnresolved = unresolvedIndices.toSet();
+                    if (_selectedChildIndices.containsAll(allUnresolved)) {
+                      _selectedChildIndices.clear();
+                    } else {
+                      _selectedChildIndices.addAll(allUnresolved);
+                    }
+                  });
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8, right: 4),
+                  child: Text(
+                    hasSelection ? 'Deselect all' : 'Select all unresolved',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: KahiliColors.flame,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+
+        // Unresolved issues
+        if (unresolvedIndices.isNotEmpty)
+          _darkCard(
+            child: Column(
+              children: [
+                for (int j = 0; j < unresolvedIndices.length; j++) ...[
+                  if (j > 0) _divider(),
+                  _unresolvedChildRow(unresolvedIndices[j]),
+                ],
+              ],
+            ),
+          ),
+
+        // Resolved/archived issues in foldout
+        if (archivedIndices.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: KahiliColors.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: KahiliColors.border),
+            ),
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+                childrenPadding: EdgeInsets.zero,
+                collapsedIconColor: KahiliColors.textTertiary,
+                iconColor: KahiliColors.textTertiary,
+                title: Row(
+                  children: [
+                    const Icon(Icons.archive_outlined, size: 16, color: KahiliColors.textTertiary),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${archivedIndices.length} resolved / archived',
+                      style: const TextStyle(fontSize: 13, color: KahiliColors.textTertiary),
+                    ),
+                  ],
+                ),
+                children: [
+                  const Divider(height: 1, color: KahiliColors.border),
+                  for (int j = 0; j < archivedIndices.length; j++) ...[
+                    if (j > 0) _divider(),
+                    _archivedChildRow(archivedIndices[j]),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+
+        // Archive button
+        if (hasSelection) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton.icon(
+              onPressed: _openArchiveDialog,
+              icon: const Icon(Icons.archive, size: 18),
+              label: Text(
+                'Archive ${_selectedChildIndices.length} issue${_selectedChildIndices.length == 1 ? '' : 's'}',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: KahiliColors.flame,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _unresolvedChildRow(int index) {
+    final url = widget.issue.sentryLinks[index];
+    final isSelected = _selectedChildIndices.contains(index);
+    final issueId = index < widget.issue.childIssueIds.length
+        ? widget.issue.childIssueIds[index]
+        : '';
+    final shortId = url.split('/').where((s) => s.isNotEmpty).lastOrNull ?? issueId;
+
+    return InkWell(
+      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        color: isSelected ? KahiliColors.flame.withAlpha(12) : null,
+        child: Row(
+          children: [
+            // Checkbox — precise tap target
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() {
+                if (isSelected) {
+                  _selectedChildIndices.remove(index);
+                } else {
+                  _selectedChildIndices.add(index);
+                }
+              }),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: isSelected ? KahiliColors.flame : KahiliColors.textTertiary,
+                      width: isSelected ? 2 : 1.5,
+                    ),
+                    color: isSelected ? KahiliColors.flame.withAlpha(25) : Colors.transparent,
+                  ),
+                  child: isSelected
+                      ? const Icon(Icons.check, size: 12, color: KahiliColors.flame)
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Issue link
+            Expanded(
+              child: Text(
+                shortId,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: KahiliColors.cyan,
+                  fontFamily: 'monospace',
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(Icons.open_in_new, size: 14, color: KahiliColors.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _archivedChildRow(int index) {
+    final url = widget.issue.sentryLinks[index];
+    final issueId = index < widget.issue.childIssueIds.length
+        ? widget.issue.childIssueIds[index]
+        : '';
+    final shortId = url.split('/').where((s) => s.isNotEmpty).lastOrNull ?? issueId;
+    final status = index < widget.issue.childStatuses.length
+        ? widget.issue.childStatuses[index]
+        : 'archived';
+
+    return InkWell(
+      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                shortId,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: KahiliColors.textTertiary,
+                  fontFamily: 'monospace',
+                  decoration: TextDecoration.lineThrough,
+                  decorationColor: KahiliColors.textTertiary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: KahiliColors.textTertiary.withAlpha(20),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                status,
+                style: const TextStyle(fontSize: 10, color: KahiliColors.textTertiary),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openArchiveDialog() async {
+    final selectedIds = _selectedChildIndices
+        .where((i) => i < widget.issue.childIssueIds.length)
+        .map((i) => widget.issue.childIssueIds[i])
+        .toList();
+    final selectedLinks = _selectedChildIndices
+        .where((i) => i < widget.issue.sentryLinks.length)
+        .map((i) => widget.issue.sentryLinks[i])
+        .toList();
+
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (_) => ArchiveDialog(
+          issueIds: selectedIds,
+          sentryLinks: selectedLinks,
+          ruleName: widget.issue.ruleName,
+          ruleDescription: _originalRuleDescription,
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      final allOk = result['ok'] == true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(allOk
+              ? 'Archived ${selectedIds.length} issue${selectedIds.length == 1 ? '' : 's'}'
+              : 'Some issues failed to archive'),
+          backgroundColor: allOk ? KahiliColors.emerald : KahiliColors.error,
+        ),
+      );
+      // Clear selection and mark as archived locally
+      setState(() {
+        for (final idx in _selectedChildIndices) {
+          if (idx < widget.issue.childStatuses.length) {
+            widget.issue.childStatuses[idx] = 'ignored';
+          }
+        }
+        _selectedChildIndices.clear();
+      });
+    }
   }
 
   // ── Rule section ─────────────────────────────────────────────────
@@ -608,6 +921,30 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     );
   }
 
+  String? _extractTldr(String report) {
+    final lines = report.split('\n');
+    int start = -1;
+    for (int i = 0; i < lines.length; i++) {
+      final lower = lines[i].toLowerCase().replaceAll(RegExp(r'[^a-z0-9#\s]'), '');
+      if (lower.startsWith('##') && (lower.contains('tldr') || lower.contains('tl dr') || lower.contains('summary'))) {
+        start = i + 1;
+        break;
+      }
+    }
+    if (start < 0) return null;
+    final buf = StringBuffer();
+    for (int i = start; i < lines.length; i++) {
+      if (lines[i].startsWith('##')) break;
+      final trimmed = lines[i].replaceFirst(RegExp(r'^[-*]\s*'), '').trim();
+      if (trimmed.isNotEmpty) {
+        if (buf.isNotEmpty) buf.write('\n');
+        buf.write(trimmed);
+      }
+    }
+    final result = buf.toString().trim();
+    return result.isEmpty ? null : result;
+  }
+
   // ── Investigation section ─────────────────────────────────────────
 
   Widget _investigationSection(bool isInvestigating) {
@@ -628,13 +965,63 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
       return _investigationStatusPanel();
     }
 
-    // Report exists — show it
+    // Report exists — show it in collapsible
     if (_report != null && _report!.isNotEmpty) {
+      // Extract TLDR section for collapsed preview
+      final tldr = _extractTldr(_report!);
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _section('Investigation Report'),
-          _reportBlock(),
+          Container(
+            decoration: BoxDecoration(
+              color: KahiliColors.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: KahiliColors.border),
+            ),
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+                childrenPadding: EdgeInsets.zero,
+                collapsedIconColor: KahiliColors.textTertiary,
+                iconColor: KahiliColors.flame,
+                title: Row(
+                  children: [
+                    const Icon(Icons.description_outlined, size: 16, color: KahiliColors.flame),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Investigation Report',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: KahiliColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                subtitle: tldr != null
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          tldr,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: KahiliColors.textTertiary,
+                            height: 1.4,
+                          ),
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )
+                    : null,
+                children: [
+                  const Divider(height: 1, color: KahiliColors.border),
+                  _reportBlock(),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
@@ -804,11 +1191,6 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: KahiliColors.surfaceLight,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: KahiliColors.border),
-      ),
       child: MarkdownBody(
         data: _report!,
         styleSheet: MarkdownStyleSheet(
@@ -1143,6 +1525,44 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(url, style: const TextStyle(fontSize: 12, color: KahiliColors.cyan, fontFamily: 'monospace'), overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => _copy(context, url),
+              child: const Icon(Icons.copy_rounded, size: 14, color: KahiliColors.textTertiary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _childLinkRow(BuildContext context, String url, {required bool isArchived}) {
+    return InkWell(
+      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      onLongPress: () => _copy(context, url),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(
+              isArchived ? Icons.archive_outlined : Icons.open_in_new,
+              size: 16,
+              color: isArchived ? KahiliColors.textTertiary : KahiliColors.cyanMuted,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                url,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isArchived ? KahiliColors.textTertiary : KahiliColors.cyan,
+                  fontFamily: 'monospace',
+                  decoration: isArchived ? TextDecoration.lineThrough : null,
+                  decorationColor: KahiliColors.textTertiary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             const SizedBox(width: 8),
             GestureDetector(

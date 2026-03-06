@@ -125,8 +125,12 @@ class _SentryTabState extends State<SentryTab> {
       filtered = raw.where((i) => i.title.toLowerCase().contains(query)).toList();
     }
 
-    // 2. Sort
+    // 2. Sort — archived mother issues always sink to the bottom
     filtered.sort((a, b) {
+      // Archived issues go to the bottom regardless of sort settings
+      if (a.allChildrenArchived != b.allChildrenArchived) {
+        return a.allChildrenArchived ? 1 : -1;
+      }
       int cmp;
       if (_filterSettings.sortField == 'affectedUsers') {
         cmp = a.metrics.affectedUsers.compareTo(b.metrics.affectedUsers);
@@ -309,6 +313,7 @@ class _SentryTabState extends State<SentryTab> {
                       issue: issue,
                       isInvestigating: isInvestigating,
                       isInvestigated: isInvestigated,
+                      isArchived: issue.allChildrenArchived,
                       matchesFilter: di.matchesFilter,
                       timeAgo: _timeAgo(issue.metrics.lastSeen),
                       formatCount: _formatCount,
@@ -344,6 +349,7 @@ class _IssueCard extends StatelessWidget {
   final MotherIssue issue;
   final bool isInvestigating;
   final bool isInvestigated;
+  final bool isArchived;
   final bool matchesFilter;
   final String timeAgo;
   final String Function(int) formatCount;
@@ -353,6 +359,7 @@ class _IssueCard extends StatelessWidget {
     required this.issue,
     required this.isInvestigating,
     required this.isInvestigated,
+    required this.isArchived,
     required this.matchesFilter,
     required this.timeAgo,
     required this.formatCount,
@@ -361,12 +368,16 @@ class _IssueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final levelColor = KahiliColors.levelColor(issue.level);
+    final levelColor = isArchived
+        ? KahiliColors.textTertiary.withAlpha(80)
+        : KahiliColors.levelColor(issue.level);
     final shortTitle = issue.title.split('\n').first;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
+      child: Opacity(
+        opacity: isArchived ? 0.45 : 1.0,
+        child: Material(
         color: KahiliColors.surfaceLight,
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
@@ -393,8 +404,10 @@ class _IssueCard extends StatelessWidget {
                         shortTitle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: KahiliColors.textPrimary,
+                        style: TextStyle(
+                          color: isArchived
+                              ? KahiliColors.textTertiary
+                              : KahiliColors.textPrimary,
                           fontWeight: FontWeight.w500,
                           fontSize: 14,
                           height: 1.3,
@@ -480,6 +493,7 @@ class _IssueCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

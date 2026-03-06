@@ -165,8 +165,8 @@ async function findChangedToday(
   return rows;
 }
 
-async function generateReport(client: SentryClient): Promise<void> {
-  const date = todayDateStr();
+async function generateReport(client: SentryClient, date?: string): Promise<void> {
+  date = date || todayDateStr();
   const reportPath = join(REPORTS_DIR, `${date}.md`);
 
   log.info(`[Reporter] Fetching issues for ${date}...`);
@@ -195,11 +195,19 @@ async function generateReport(client: SentryClient): Promise<void> {
 }
 
 let reporterInterval: ReturnType<typeof setInterval> | null = null;
+let storedClient: SentryClient | null = null;
+
+export async function backfillReport(date: string): Promise<void> {
+  if (!storedClient) throw new Error("Reporter not started yet");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Invalid date format, expected YYYY-MM-DD");
+  await generateReport(storedClient, date);
+}
 
 export async function startReporter(
   client: SentryClient,
   intervalSeconds: number
 ): Promise<void> {
+  storedClient = client;
   await mkdir(REPORTS_DIR, { recursive: true });
 
   log.info(

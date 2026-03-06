@@ -177,13 +177,15 @@ INVESTIGATION STEPS:
 
 FINAL REPORT FORMAT (markdown):
 # Investigation: <short title>
+## TLDR
+A 2-3 sentence summary: how severe this likely is, and what's going wrong. Be direct.
+## Risk Assessment
 ## Release Branch
 ## Release Version
 ## Error Summary
 ## Root Cause
 ## Affected Code
 ## Suggested Fix
-## Risk Assessment
 ## Suggested Assignee
 
 RULES:

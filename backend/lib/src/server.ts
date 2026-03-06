@@ -8,6 +8,7 @@ import { readPidFile } from "./kahu-manager.js";
 import { applyKahuSettings, readKahuSettings, type KahuSettings } from "./settings.js";
 import { startInvestigation, getCurrentInvestigation, cancelInvestigation } from "./investigator.js";
 import { startRuleGeneration, getCurrentRuleGeneration, cancelRuleGeneration, deleteRule } from "./rule-generator.js";
+import { startHelpAgent, getCurrentHelpAgent, cancelHelpAgent, listHelpQuestions, getHelpAnswer } from "./help-agent.js";
 import { attachWebSocket } from "./websocket.js";
 import { log } from "./logger.js";
 
@@ -61,8 +62,15 @@ function buildPreloaderHtml(): string {
 
     /* ── main container ── */
     #preloader {
-      position: relative;
-      z-index: 1;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: #06060A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -187,14 +195,30 @@ function buildPreloaderHtml(): string {
         var names = await caches.keys();
         for (var n of names) await caches.delete(n);
       }
-      await new Promise(function(r) { setTimeout(r, 2000); });
-      document.getElementById('preloader').classList.add('fade');
-      setTimeout(function() {
-        var s = document.createElement('script');
-        s.src = 'flutter_bootstrap.js?v=${v}';
-        s.async = true;
-        document.head.appendChild(s);
-      }, 500);
+
+      // Start loading Flutter immediately
+      var s = document.createElement('script');
+      s.src = 'flutter_bootstrap.js?v=${v}';
+      s.async = true;
+      document.head.appendChild(s);
+
+      // Keep preloader visible until Flutter actually renders
+      var observer = new MutationObserver(function() {
+        if (document.querySelector('flutter-view') || document.querySelector('flt-glass-pane')) {
+          observer.disconnect();
+          // Brief delay to let Flutter paint its first frame
+          setTimeout(function() {
+            document.getElementById('preloader').classList.add('fade');
+            setTimeout(function() {
+              var el = document.getElementById('preloader');
+              if (el) el.style.display = 'none';
+              var amb = document.querySelector('.ambient');
+              if (amb) amb.style.display = 'none';
+            }, 500);
+          }, 300);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
     })();
   </script>
 </body>
@@ -610,11 +634,70 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
+  // GET /api/help-agent — current help agent status
+  if (req.method === "GET" && url === "/api/help-agent") {
+    const agent = getCurrentHelpAgent();
+    if (!agent) {
+      return json(res, { active: false });
+    }
+    return json(res, { active: agent.status === "running", agent });
+  }
+
+  // POST /api/help-agent — start help agent
+  if (req.method === "POST" && url === "/api/help-agent") {
+    let body: { question?: string };
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw);
+    } catch {
+      return json(res, { error: "invalid JSON body" }, 400);
+    }
+
+    if (!body.question) {
+      return json(res, { error: "question is required" }, 400);
+    }
+
+    try {
+      const agent = await startHelpAgent(body.question);
+      return json(res, { ok: true, agent });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = msg.includes("already being processed") ? 409 : 500;
+      return json(res, { error: msg }, status);
+    }
+  }
+
+  // DELETE /api/help-agent — cancel help agent
+  if (req.method === "DELETE" && url === "/api/help-agent") {
+    const cancelled = cancelHelpAgent();
+    return json(res, { ok: cancelled });
+  }
+
+  // GET /api/help-questions — list all help questions
+  if (req.method === "GET" && url === "/api/help-questions") {
+    return json(res, listHelpQuestions());
+  }
+
+  // GET /api/help-questions/:id — get a specific question with answer
+  const helpMatch = url.match(/^\/api\/help-questions\/([a-z0-9]+)$/);
+  if (req.method === "GET" && helpMatch) {
+    const answer = getHelpAnswer(helpMatch[1]);
+    if (!answer) {
+      return json(res, { error: "not found" }, 404);
+    }
+    return json(res, answer);
+  }
+
   // Proxy kahu API — /api/kahu/* → kahu:3456/api/*
   if (url.startsWith("/api/kahu/")) {
     const kahuPath = url.replace("/api/kahu/", "/api/");
     try {
-      const kahuRes = await fetch(`http://localhost:3456${kahuPath}`);
+      const fetchInit: RequestInit = { method: req.method };
+      if (req.method === "POST" || req.method === "PUT") {
+        fetchInit.headers = { "Content-Type": "application/json" };
+        fetchInit.body = await readBody(req);
+      }
+      const kahuRes = await fetch(`http://localhost:3456${kahuPath}`, fetchInit);
       const body = await kahuRes.text();
       res.writeHead(kahuRes.status, { "Content-Type": kahuRes.headers.get("content-type") || "application/json" });
       res.end(body);

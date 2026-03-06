@@ -111,22 +111,29 @@ class _ReportDetailState extends State<ReportDetail> {
     });
   }
 
+  String _slackConditions(String cond) {
+    if (cond.startsWith('archived ')) return 'archived *${cond.substring(9)}*';
+    if (cond.startsWith('in release ')) return 'in release *${cond.substring(11)}*';
+    if (cond == 'in next release') return '*in next release*';
+    if (cond.startsWith('in commit ')) return 'in commit *${cond.substring(10)}*';
+    return '*$cond*';
+  }
+
   String _buildSlackText() {
     final buf = StringBuffer();
-    buf.writeln('**Daily Issues Report — ${widget.date}**');
-    buf.writeln('Resolved: $_resolvedCount | Archived: $_archivedCount | Total: ${_resolvedCount + _archivedCount}');
+    buf.writeln('*Daily Issues Report — ${widget.date}*');
+    buf.writeln('Resolved: $_resolvedCount | Archived: $_archivedCount | *Total: ${_resolvedCount + _archivedCount}*');
     buf.writeln();
 
     for (var i = 0; i < _rows.length; i++) {
       final row = _rows[i];
       final num = i + 1;
 
-      // Issue line: number, linked issue ID, title in code block
-      buf.write('$num. ');
+      // Issue line
       if (row.issueUrl.isNotEmpty) {
-        buf.write('[${row.issueId}](${row.issueUrl})');
+        buf.write('$num. [${row.issueId}](${row.issueUrl})');
       } else {
-        buf.write(row.issueId);
+        buf.write('$num. *${row.issueId}*');
       }
       if (row.issueTitle.isNotEmpty) {
         buf.write(': `${row.issueTitle}`');
@@ -135,23 +142,24 @@ class _ReportDetailState extends State<ReportDetail> {
 
       // Details line
       final details = <String>[];
-      details.add(row.action);
+      details.add('*${row.action}*');
       if (row.actor.isNotEmpty && row.actor != '—') {
-        details.add('by ${row.actor}');
+        details.add('by *${row.actor}*');
       }
       if (row.conditions.isNotEmpty && row.conditions != '—') {
-        details.add(row.conditions);
+        details.add(_slackConditions(row.conditions));
       }
-      buf.writeln('    ${details.join(' · ')}');
+
+      if (row.latestComment.isNotEmpty) {
+        buf.writeln('   ${details.join(' · ')} with comment:');
+        buf.writeln('   _"${row.latestComment}"_');
+      } else {
+        buf.writeln('   ${details.join(' · ')}');
+      }
 
       // Jira link
       if (row.jiraId.isNotEmpty) {
-        buf.writeln('    Jira: [${row.jiraId}](${row.jiraUrl})');
-      }
-
-      // Latest comment in italic
-      if (row.latestComment.isNotEmpty) {
-        buf.writeln('    _"${row.latestComment}"_');
+        buf.writeln('   Jira: [${row.jiraId}](${row.jiraUrl})');
       }
 
       if (i < _rows.length - 1) buf.writeln();

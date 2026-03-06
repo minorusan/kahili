@@ -288,6 +288,7 @@ export interface SentryActivity {
 export interface SavedIssue {
   issue: SentryIssue;
   events: SentryFullEvent[];
+  firstSeenRelease?: string;
   savedAt: string;
   updatedAt: string;
 }

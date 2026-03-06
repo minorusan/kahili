@@ -11,6 +11,8 @@ import {
 } from "./rules/storage.js";
 import { loadAllIssues, loadIssue } from "./storage.js";
 import { RULES } from "./rules/index.js";
+import { backfillReport } from "./reporter.js";
+import type { SentryClient, ArchiveParams } from "./sentry-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -400,6 +402,17 @@ function renderMotherIssueDetailPage(
 
 // ── router ───────────────────────────────────────────────────────────
 
+let sentryClient: SentryClient | null = null;
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString()));
+    req.on("error", reject);
+  });
+}
+
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = req.url || "/";
 
@@ -460,6 +473,71 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return json(res, mi);
   }
 
+  // API: backfill daily report for a specific date
+  if (req.method === "POST" && url === "/api/backfill-report") {
+    let body = "";
+    await new Promise<void>((resolve) => {
+      req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+      req.on("end", resolve);
+    });
+    try {
+      const { date } = JSON.parse(body) as { date?: string };
+      if (!date) return json(res, { error: "date is required (YYYY-MM-DD)" }, 400);
+      await backfillReport(date);
+      return json(res, { ok: true, date });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`[Server] Backfill failed: ${msg}`);
+      return json(res, { error: msg }, 500);
+    }
+  }
+
+  // API: archive issues with comment
+  if (req.method === "POST" && url === "/api/archive-issues") {
+    if (!sentryClient) {
+      return json(res, { error: "Sentry client not initialized" }, 500);
+    }
+    let body: {
+      issueIds?: string[];
+      comment?: string;
+      archiveParams?: ArchiveParams;
+    };
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw);
+    } catch {
+      return json(res, { error: "invalid JSON body" }, 400);
+    }
+
+    if (!body.issueIds?.length) {
+      return json(res, { error: "issueIds array is required" }, 400);
+    }
+    if (!body.archiveParams) {
+      return json(res, { error: "archiveParams is required" }, 400);
+    }
+
+    const results: Array<{ issueId: string; ok: boolean; error?: string }> = [];
+
+    for (const issueId of body.issueIds) {
+      try {
+        // Add comment first (if provided), then archive
+        if (body.comment) {
+          await sentryClient.addIssueComment(issueId, body.comment);
+        }
+        await sentryClient.archiveIssue(issueId, body.archiveParams);
+        results.push({ issueId, ok: true });
+        log.info(`[Server] Archived issue ${issueId}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error(`[Server] Failed to archive issue ${issueId}: ${msg}`);
+        results.push({ issueId, ok: false, error: msg });
+      }
+    }
+
+    const allOk = results.every((r) => r.ok);
+    return json(res, { ok: allOk, results }, allOk ? 200 : 207);
+  }
+
   // HTML: mother issues list
   if (url === "/mother-issues") {
     const mis = await loadAllMotherIssues();
@@ -501,7 +579,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
 // ── server ───────────────────────────────────────────────────────────
 
-export function startServer(port: number): void {
+export function startServer(port: number, client?: SentryClient): void {
+  if (client) sentryClient = client;
   const server = createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
       log.error("HTTP handler error", err);

@@ -57,7 +57,7 @@ log.info(`Log file: ${log.getSessionFile()}`);
 
 const client = new SentryClient({ token, org, project });
 
-startServer(webPort);
+startServer(webPort, client);
 
 // Run rules engine on startup against existing issues
 await processRules();

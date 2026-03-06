@@ -1,23 +1,25 @@
 import { createHash } from "node:crypto";
 import { Rule, type MotherIssue } from "./rule.js";
-import { NreRule } from "./nre-rule.js";
 import { MilestoneErrorRule } from "./milestone-error-rule.js";
-import { AssetDownloadRule } from "./asset-download-rule.js";
 import { UnityWebRequestRule } from "./unity-webrequest-rule.js";
 import { SkullIconRule } from "./skull-icon-rule.js";
 import { HttpClientErrorStartRule } from "./http-client-error-start-rule.js";
 import { SkuIconRule } from "./sku-icon-rule.js";
-import { LiveopIdRule } from "./liveop-id-rule.js";
+import { CouponsServiceRule } from "./coupons-service-rule.js";
+import { ContinuousOperationChallengePopupRule } from "./continuous-operation-challenge-popup-rule.js";
+import { AlbumLiveOpInitRule } from "./album-liveop-init-rule.js";
+import { ManagedStacktraceRule } from "./managed-stacktrace-rule.js";
+import { NreManagedStacktraceRule } from "./nre-managed-stacktrace-rule.js";
 import {
   saveMotherIssue,
   loadAllMotherIssues,
   ensureMotherIssuesDir,
 } from "./storage.js";
-import { loadAllIssues } from "../storage.js";
+import { loadAllIssues, backfillFirstSeenRelease } from "../storage.js";
 import { log } from "../logger.js";
 import type { SavedIssue } from "../types.js";
 
-export const RULES: Rule[] = [new NreRule(), new MilestoneErrorRule(), new AssetDownloadRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule(), new LiveopIdRule()];
+export const RULES: Rule[] = [ new MilestoneErrorRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule(), new CouponsServiceRule(), new ContinuousOperationChallengePopupRule(), new AlbumLiveOpInitRule(), new ManagedStacktraceRule(), new NreManagedStacktraceRule()];
 
 /**
  * Parse Unity/C# stack frames from a message string.
@@ -118,15 +120,24 @@ export function runRules(issues: SavedIssue[]): MotherIssue[] {
     let firstSeen = groupIssues[0].issue.firstSeen;
     let lastSeen = groupIssues[0].issue.lastSeen;
     let level: string = groupIssues[0].issue.level;
+    let firstSeenRelease: string | undefined;
 
     for (const si of groupIssues) {
       totalOccurrences += parseInt(si.issue.count, 10) || 0;
       affectedUsers += si.issue.userCount || 0;
 
-      if (si.issue.firstSeen < firstSeen) firstSeen = si.issue.firstSeen;
+      if (si.issue.firstSeen < firstSeen) {
+        firstSeen = si.issue.firstSeen;
+        if (si.firstSeenRelease) firstSeenRelease = si.firstSeenRelease;
+      }
       if (si.issue.lastSeen > lastSeen) lastSeen = si.issue.lastSeen;
 
       level = highestLevel(level, si.issue.level);
+
+      // Track earliest release across all children
+      if (!firstSeenRelease && si.firstSeenRelease) {
+        firstSeenRelease = si.firstSeenRelease;
+      }
     }
 
     // Extract stack trace from first issue's first event
@@ -157,12 +168,24 @@ export function runRules(issues: SavedIssue[]): MotherIssue[] {
     for (const si of groupIssues) {
       if (si.issue.permalink) sentryLinks.push(si.issue.permalink);
       for (const evt of si.events) {
+        // Check contexts.smartlook.url
         const sl = evt.contexts?.smartlook as
           | { url?: string; [key: string]: unknown }
           | undefined;
         if (sl?.url) smartlookSet.add(sl.url);
+        // Check tags for SmartlookUrl
+        for (const tag of evt.tags ?? []) {
+          if (tag.key === "SmartlookUrl" && tag.value) {
+            smartlookSet.add(tag.value);
+          }
+        }
       }
     }
+
+    // Check if every child issue has been archived/resolved (i.e. not unresolved)
+    const allChildrenArchived =
+      groupIssues.length > 0 &&
+      groupIssues.every((si) => si.issue.status !== "unresolved");
 
     const mi: MotherIssue = {
       id,
@@ -178,9 +201,12 @@ export function runRules(issues: SavedIssue[]): MotherIssue[] {
         lastSeen,
       },
       childIssueIds: groupIssues.map((si) => si.issue.id),
+      childStatuses: groupIssues.map((si) => si.issue.status ?? "unresolved"),
       sentryLinks,
       smartlookUrls: [...smartlookSet],
       stackTrace,
+      firstSeenRelease,
+      allChildrenArchived,
       createdAt: now,
       updatedAt: now,
     };
@@ -193,6 +219,12 @@ export function runRules(issues: SavedIssue[]): MotherIssue[] {
 
 export async function processRules(): Promise<void> {
   await ensureMotherIssuesDir();
+
+  // One-time backfill: populate firstSeenRelease from stored events
+  const backfilled = await backfillFirstSeenRelease();
+  if (backfilled > 0) {
+    log.info(`[Rules] Backfilled firstSeenRelease for ${backfilled} issues`);
+  }
 
   const issues = await loadAllIssues();
   if (issues.length === 0) {
@@ -210,6 +242,10 @@ export async function processRules(): Promise<void> {
     const prev = existingMap.get(mi.id);
     if (prev) {
       mi.createdAt = prev.createdAt;
+      // Preserve first seen release if not freshly computed
+      if (!mi.firstSeenRelease && prev.firstSeenRelease) {
+        mi.firstSeenRelease = prev.firstSeenRelease;
+      }
     }
     await saveMotherIssue(mi);
   }

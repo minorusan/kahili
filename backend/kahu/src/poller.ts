@@ -1,6 +1,6 @@
 import type { SentryClient } from "./sentry-client.js";
 import type { ProcessedIssueState } from "./types.js";
-import { loadState, saveState, saveIssue, ensureDataDirs } from "./storage.js";
+import { loadState, saveState, saveIssue, loadAllIssues, ensureDataDirs } from "./storage.js";
 import { log } from "./logger.js";
 import { processRules } from "./rules/index.js";
 import { stopReporter } from "./reporter.js";
@@ -20,6 +20,40 @@ export function stopPolling(): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Re-fetch current status for all tracked issues from Sentry.
+ * Updates the local saved issue files so processRules() sees current statuses.
+ */
+export async function refreshIssueStatuses(client: SentryClient): Promise<void> {
+  const saved = await loadAllIssues();
+  if (saved.length === 0) return;
+
+  log.info(`[Poll] Refreshing statuses for ${saved.length} tracked issues...`);
+  let updated = 0;
+
+  for (const si of saved) {
+    if (!running) break;
+    try {
+      const fresh = await client.getIssue(si.issue.id);
+      if (fresh.status !== si.issue.status) {
+        log.info(
+          `[Poll] Issue ${si.issue.shortId} status: ${si.issue.status} → ${fresh.status}`
+        );
+        si.issue.status = fresh.status;
+        si.issue.statusDetails = fresh.statusDetails ?? {};
+        await saveIssue(si.issue, si.events);
+        updated++;
+      }
+    } catch (err) {
+      log.warn(`[Poll] Failed to refresh status for ${si.issue.id}: ${err}`);
+    }
+  }
+
+  if (updated > 0) {
+    log.info(`[Poll] Updated ${updated} issue statuses`);
+  }
 }
 
 export async function startPolling(
@@ -69,9 +103,14 @@ export async function startPolling(
   state.alertRuleName = rule.name;
   await saveState(state);
 
+  // Refresh issue statuses from Sentry on startup before first poll
+  await refreshIssueStatuses(client);
+  await processRules();
+
   while (running) {
     try {
       await pollCycle(client, alertRuleId);
+      await refreshIssueStatuses(client);
       await processRules();
     } catch (err) {
       log.error("[Poll] Error during poll cycle:", err);

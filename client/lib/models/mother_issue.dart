@@ -53,9 +53,12 @@ class MotherIssue {
   final String level;
   final MotherIssueMetrics metrics;
   final List<String> childIssueIds;
+  final List<String> childStatuses;
   final List<String> sentryLinks;
   final List<String> smartlookUrls;
   final List<StackFrame>? stackFrames;
+  final String? firstSeenRelease;
+  final bool allChildrenArchived;
   final String createdAt;
   final String updatedAt;
 
@@ -68,9 +71,12 @@ class MotherIssue {
     required this.level,
     required this.metrics,
     required this.childIssueIds,
+    required this.childStatuses,
     required this.sentryLinks,
     required this.smartlookUrls,
     this.stackFrames,
+    this.firstSeenRelease,
+    required this.allChildrenArchived,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -95,9 +101,12 @@ class MotherIssue {
       level: json['level'] ?? '',
       metrics: MotherIssueMetrics.fromJson(json['metrics'] ?? {}),
       childIssueIds: List<String>.from(json['childIssueIds'] ?? []),
+      childStatuses: List<String>.from(json['childStatuses'] ?? []),
       sentryLinks: List<String>.from(json['sentryLinks'] ?? []),
       smartlookUrls: List<String>.from(json['smartlookUrls'] ?? []),
       stackFrames: frames,
+      firstSeenRelease: json['firstSeenRelease'],
+      allChildrenArchived: json['allChildrenArchived'] == true,
       createdAt: json['createdAt'] ?? '',
       updatedAt: json['updatedAt'] ?? '',
     );

@@ -46,20 +46,30 @@ export async function saveIssue(
   const now = new Date().toISOString();
 
   let savedAt = now;
+  let firstSeenRelease: string | undefined;
   if (existsSync(filePath)) {
     try {
       const existing = JSON.parse(
         await readFile(filePath, "utf-8")
       ) as SavedIssue;
       savedAt = existing.savedAt;
+      firstSeenRelease = existing.firstSeenRelease;
     } catch {
       // Corrupted file, reset savedAt
     }
   }
 
+  // Set firstSeenRelease from events if not already set
+  if (!firstSeenRelease && events.length > 0) {
+    // Use the oldest event's release (events are newest-first)
+    const oldest = events[events.length - 1];
+    firstSeenRelease = oldest.release ?? undefined;
+  }
+
   const saved: SavedIssue = {
     issue,
     events,
+    firstSeenRelease,
     savedAt,
     updatedAt: now,
   };
@@ -76,6 +86,38 @@ export async function loadIssue(issueId: string): Promise<SavedIssue | null> {
 
   const raw = await readFile(filePath, "utf-8");
   return JSON.parse(raw) as SavedIssue;
+}
+
+export async function backfillFirstSeenRelease(): Promise<number> {
+  let backfilled = 0;
+  let files: string[];
+  try {
+    files = await readdir(ISSUES_DIR);
+  } catch {
+    return 0;
+  }
+  const jsonFiles = files.filter((f) => f.endsWith(".json"));
+  for (const file of jsonFiles) {
+    const filePath = join(ISSUES_DIR, file);
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const saved = JSON.parse(raw) as SavedIssue;
+      if (saved.firstSeenRelease) continue;
+
+      // Compute from events (oldest event = last in array)
+      if (saved.events.length > 0) {
+        const oldest = saved.events[saved.events.length - 1];
+        if (oldest.release) {
+          saved.firstSeenRelease = oldest.release;
+          await writeFile(filePath, JSON.stringify(saved, null, 2));
+          backfilled++;
+        }
+      }
+    } catch {
+      // skip corrupt files
+    }
+  }
+  return backfilled;
 }
 
 export async function loadAllIssues(): Promise<SavedIssue[]> {

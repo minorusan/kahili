@@ -25,6 +25,9 @@ export interface MotherIssue {
       inApp: boolean;
     }>;
   };
+  firstSeenRelease?: string;
+  childStatuses: string[]; // status of each child issue (parallel to childIssueIds)
+  allChildrenArchived: boolean;
   createdAt: string;
   updatedAt: string;
 }

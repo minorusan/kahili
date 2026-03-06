@@ -97,6 +97,91 @@ class RuleGenerationStatus {
   }
 }
 
+class HelpAgentStatus {
+  final bool active;
+  final String? id;
+  final String? question;
+  final String? status; // "running" | "completed" | "failed"
+  final String? statusText;
+  final String? startedAt;
+  final String? completedAt;
+
+  HelpAgentStatus({
+    required this.active,
+    this.id,
+    this.question,
+    this.status,
+    this.statusText,
+    this.startedAt,
+    this.completedAt,
+  });
+
+  factory HelpAgentStatus.fromJson(Map<String, dynamic> json) {
+    final agent = json['agent'] as Map<String, dynamic>?;
+    return HelpAgentStatus(
+      active: json['active'] == true,
+      id: agent?['id'],
+      question: agent?['question'],
+      status: agent?['status'],
+      statusText: agent?['statusText'],
+      startedAt: agent?['startedAt'],
+      completedAt: agent?['completedAt'],
+    );
+  }
+}
+
+class HelpQuestionSummary {
+  final String id;
+  final String question;
+  final String status;
+  final String startedAt;
+  final String? completedAt;
+
+  HelpQuestionSummary({
+    required this.id,
+    required this.question,
+    required this.status,
+    required this.startedAt,
+    this.completedAt,
+  });
+
+  factory HelpQuestionSummary.fromJson(Map<String, dynamic> json) {
+    return HelpQuestionSummary(
+      id: json['id'] ?? '',
+      question: json['question'] ?? '',
+      status: json['status'] ?? '',
+      startedAt: json['startedAt'] ?? '',
+      completedAt: json['completedAt'],
+    );
+  }
+}
+
+class HelpQuestionDetail {
+  final String question;
+  final String answer;
+  final String status;
+  final String startedAt;
+  final String? completedAt;
+
+  HelpQuestionDetail({
+    required this.question,
+    required this.answer,
+    required this.status,
+    required this.startedAt,
+    this.completedAt,
+  });
+
+  factory HelpQuestionDetail.fromJson(Map<String, dynamic> json) {
+    return HelpQuestionDetail(
+      question: json['question'] ?? '',
+      answer: json['answer'] ?? '',
+      status: json['status'] ?? '',
+      startedAt: json['startedAt'] ?? '',
+      completedAt: json['completedAt'],
+    );
+  }
+}
+
 class ApiClient {
   static String get _baseUrl {
     if (kIsWeb) return '';
@@ -281,5 +366,93 @@ class ApiClient {
       throw Exception('Failed to get repo info: ${res.statusCode}');
     }
     return RepoInfo.fromJson(jsonDecode(res.body));
+  }
+
+  // ── Settings ────────────────────────────────────────────────────
+
+  static Future<Map<String, String>> getSettings() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/kahu-settings'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to get settings: ${res.statusCode}');
+    }
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    return data.map((k, v) => MapEntry(k, v?.toString() ?? ''));
+  }
+
+  static Future<Map<String, dynamic>> applySettings(Map<String, String> settings) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/kahu-settings'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(settings),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Failed to apply settings: ${res.statusCode}');
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  // ── Help agent ──────────────────────────────────────────────────
+
+  static Future<HelpAgentStatus> getHelpAgentStatus() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/help-agent'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to get help agent status: ${res.statusCode}');
+    }
+    return HelpAgentStatus.fromJson(jsonDecode(res.body));
+  }
+
+  static Future<void> startHelpAgent(String question) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/help-agent'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'question': question}),
+    );
+    if (res.statusCode != 200) {
+      final data = jsonDecode(res.body);
+      throw Exception(data['error'] ?? 'Failed to start help agent');
+    }
+  }
+
+  static Future<List<HelpQuestionSummary>> getHelpQuestions() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/help-questions'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to load help questions: ${res.statusCode}');
+    }
+    final List<dynamic> data = jsonDecode(res.body);
+    return data
+        .map((item) => HelpQuestionSummary.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<HelpQuestionDetail> getHelpQuestion(String id) async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/help-questions/$id'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to load help question: ${res.statusCode}');
+    }
+    return HelpQuestionDetail.fromJson(jsonDecode(res.body));
+  }
+
+  // ── Archive issues ──────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> archiveIssues({
+    required List<String> issueIds,
+    required Map<String, dynamic> archiveParams,
+    String? comment,
+  }) async {
+    final body = <String, dynamic>{
+      'issueIds': issueIds,
+      'archiveParams': archiveParams,
+    };
+    if (comment != null && comment.isNotEmpty) body['comment'] = comment;
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/kahu/archive-issues'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (res.statusCode != 200 && res.statusCode != 207) {
+      final data = jsonDecode(res.body);
+      throw Exception(data['error'] ?? 'Failed to archive issues');
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 }

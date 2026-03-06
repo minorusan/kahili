@@ -42,14 +42,16 @@ export class SentryClient {
     this.project = config.project;
   }
 
-  private async request(endpoint: string): Promise<Response> {
+  private async request(endpoint: string, init?: RequestInit): Promise<Response> {
     const url = `${BASE_URL}${endpoint}`;
     const maxRetries = 5;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const res = await fetch(url, {
+        ...init,
         headers: {
           Authorization: `Bearer ${this.token}`,
+          ...(init?.headers || {}),
         },
       });
 
@@ -131,6 +133,13 @@ export class SentryClient {
     return trimEvent(raw);
   }
 
+  async getIssue(issueId: string): Promise<SentryResolvedIssue> {
+    const res = await this.request(
+      `/organizations/${this.org}/issues/${issueId}/`
+    );
+    return (await res.json()) as SentryResolvedIssue;
+  }
+
   async searchIssues(query: string, limit: number = 100): Promise<SentryResolvedIssue[]> {
     const params = new URLSearchParams();
     params.set("query", query);
@@ -206,6 +215,70 @@ export class SentryClient {
 
     return fullEvents;
   }
+
+  // =========================================================================
+  // Issue Mutations (archive, comment)
+  // =========================================================================
+
+  /**
+   * Archive (ignore) a single issue with the given parameters.
+   * Maps to PUT /api/0/organizations/{org}/issues/{issue_id}/
+   */
+  async archiveIssue(
+    issueId: string,
+    params: ArchiveParams
+  ): Promise<void> {
+    const body: Record<string, unknown> = { status: "ignored" };
+
+    if (params.substatus === "archived_forever") {
+      body.substatus = "archived_forever";
+    } else if (params.substatus === "archived_until_escalating") {
+      body.substatus = "archived_until_escalating";
+    } else {
+      // Condition-based archive
+      body.substatus = "archived_until_condition_met";
+      const details: Record<string, unknown> = {};
+      if (params.ignoreDuration != null) details.ignoreDuration = params.ignoreDuration;
+      if (params.ignoreCount != null) details.ignoreCount = params.ignoreCount;
+      if (params.ignoreWindow != null) details.ignoreWindow = params.ignoreWindow;
+      if (params.ignoreUserCount != null) details.ignoreUserCount = params.ignoreUserCount;
+      if (params.ignoreUserWindow != null) details.ignoreUserWindow = params.ignoreUserWindow;
+      body.statusDetails = details;
+    }
+
+    await this.request(
+      `/organizations/${this.org}/issues/${issueId}/`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+  }
+
+  /**
+   * Add a comment (note) to a single issue.
+   * Maps to POST /api/0/organizations/{org}/issues/{issue_id}/notes/
+   */
+  async addIssueComment(issueId: string, text: string): Promise<void> {
+    await this.request(
+      `/organizations/${this.org}/issues/${issueId}/notes/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      }
+    );
+  }
+}
+
+export interface ArchiveParams {
+  substatus?: "archived_forever" | "archived_until_escalating";
+  ignoreDuration?: number;   // archive for N minutes (e.g. 1440 = 24h)
+  ignoreCount?: number;      // reopen after N more events
+  ignoreWindow?: number;     // ...within N minutes (pairs with ignoreCount)
+  ignoreUserCount?: number;  // reopen after N more users affected
+  ignoreUserWindow?: number; // ...within N minutes (pairs with ignoreUserCount)
 }
 
 /**
