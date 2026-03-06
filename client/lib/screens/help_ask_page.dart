@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../api/api_client.dart';
 import '../models/api_models.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 
 class HelpAskPage extends StatefulWidget {
   const HelpAskPage({super.key});
@@ -318,7 +319,7 @@ class _HelpAskPageState extends State<HelpAskPage> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: KahiliColors.border),
           ),
-          child: SelectionArea(
+          child: CopyableSelectionArea(
             child: MarkdownBody(
               data: statusText,
               styleSheet: _markdownStyle(),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 
 class FilterSettings {
   final List<String> filterStrings;
@@ -115,7 +116,7 @@ class _FilterPageState extends State<FilterPage> {
         ),
         body: !_loaded
           ? const Center(child: CircularProgressIndicator())
-          : SelectionArea(child: ListView(
+          : CopyableSelectionArea(child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             // ── Sort section ─────────────────────────────

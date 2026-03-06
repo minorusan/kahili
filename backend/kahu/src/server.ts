@@ -8,13 +8,44 @@ import type { MotherIssue } from "./rules/rule.js";
 import {
   loadAllMotherIssues,
   loadMotherIssue as loadMotherIssueFromDisk,
+  saveMotherIssue,
 } from "./rules/storage.js";
 import { loadAllIssues, loadIssue } from "./storage.js";
-import { RULES } from "./rules/index.js";
+import { RULES, parseStackFromMessage } from "./rules/index.js";
 import { backfillReport } from "./reporter.js";
 import type { SentryClient, ArchiveParams } from "./sentry-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function extractStackFrames(saved: SavedIssue) {
+  // Try structured exception first
+  const exc = saved.events[0]?.exception?.values?.[0];
+  if (exc?.stacktrace?.frames?.length) {
+    return {
+      frames: exc.stacktrace.frames.map((f) => ({
+        filename: f.filename ?? "",
+        function: f.function ?? "",
+        lineno: f.lineno ?? 0,
+        inApp: f.inApp ?? false,
+      })),
+      errorType: exc.type,
+      errorValue: exc.value,
+    };
+  }
+  // Fall back to parsing from message/title
+  const msg = saved.events[0]?.message || saved.issue.title || "";
+  const frames = parseStackFromMessage(msg);
+  if (frames.length > 0) {
+    // Extract error type from first line
+    const firstLine = msg.replace(/\\n/g, "\n").split("\n")[0] ?? "";
+    // Try "ExceptionType: message" format
+    const excMatch = firstLine.match(/^([A-Z]\w+(?:Exception|Error|Failure))\s*:\s*(.+)/);
+    const errorType = excMatch ? excMatch[1] : undefined;
+    const errorValue = excMatch ? excMatch[2].trim() : firstLine;
+    return { frames, errorType, errorValue };
+  }
+  return null;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -423,6 +454,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       .sort((a, b) => new Date(b.issue.lastSeen).getTime() - new Date(a.issue.lastSeen).getTime())
       .map((s) => {
         const i = s.issue;
+        const stack = extractStackFrames(s);
         return {
           id: i.id,
           shortId: i.shortId,
@@ -435,6 +467,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
           lastSeen: i.lastSeen,
           platform: i.project?.slug,
           permalink: i.permalink,
+          stackTrace: stack ? { frames: stack.frames } : undefined,
+          errorType: stack?.errorType,
+          errorValue: stack?.errorValue,
         };
       });
     return json(res, summaries);
@@ -463,6 +498,59 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         new Date(a.metrics.lastSeen).getTime()
     );
     return json(res, sorted);
+  }
+
+  // API: create manual mother issue from a single incoming issue
+  if (req.method === "POST" && url === "/api/mother-issues/manual") {
+    const body = JSON.parse(await readBody(req)) as { issueId?: string };
+    if (!body.issueId) return json(res, { error: "issueId is required" }, 400);
+
+    const saved = await loadIssue(body.issueId);
+    if (!saved) return json(res, { error: "Issue not found" }, 404);
+
+    const { createHash } = await import("node:crypto");
+    const groupingKey = `Manual::${body.issueId}`;
+    const id = createHash("sha256").update(groupingKey).digest("hex").slice(0, 16);
+
+    const extracted = extractStackFrames(saved);
+    const stackTrace = extracted ? { frames: extracted.frames } : undefined;
+    const smartlookUrls: string[] = [];
+    for (const evt of saved.events) {
+      const sl = evt.contexts?.smartlook as { url?: string; [key: string]: unknown } | undefined;
+      if (sl?.url) smartlookUrls.push(sl.url);
+      for (const tag of evt.tags ?? []) {
+        if (tag.key === "SmartlookUrl" && tag.value) smartlookUrls.push(tag.value);
+      }
+    }
+
+    const now = new Date().toISOString();
+    const mi: MotherIssue = {
+      id,
+      groupingKey,
+      ruleName: "Manual",
+      title: saved.issue.title,
+      errorType: saved.issue.metadata.type || "Error",
+      level: saved.issue.level,
+      metrics: {
+        totalOccurrences: parseInt(saved.issue.count, 10) || 0,
+        affectedUsers: saved.issue.userCount || 0,
+        firstSeen: saved.issue.firstSeen,
+        lastSeen: saved.issue.lastSeen,
+      },
+      childIssueIds: [saved.issue.id],
+      childStatuses: [saved.issue.status ?? "unresolved"],
+      sentryLinks: saved.issue.permalink ? [saved.issue.permalink] : [],
+      smartlookUrls: [...new Set(smartlookUrls)],
+      stackTrace,
+      firstSeenRelease: saved.firstSeenRelease,
+      allChildrenArchived: saved.issue.status !== "unresolved",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await saveMotherIssue(mi);
+    log.info(`[Server] Created manual mother issue ${id} for issue ${body.issueId}`);
+    return json(res, mi, 201);
   }
 
   // API: single mother issue

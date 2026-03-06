@@ -3,6 +3,7 @@ import '../api/api_client.dart';
 import '../models/mother_issue.dart';
 import '../models/sentry_issue.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 import 'incoming_issue_detail.dart';
 
 class IncomingTab extends StatefulWidget {
@@ -135,7 +136,7 @@ class IncomingTabState extends State<IncomingTab> {
       color: KahiliColors.flame,
       backgroundColor: KahiliColors.surfaceLight,
       onRefresh: () async => _load(),
-      child: SelectionArea(child: Column(
+      child: CopyableSelectionArea(child: Column(
         children: [
           // ── Search bar ─────────────────────────────
           Padding(

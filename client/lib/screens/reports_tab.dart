@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../api/client_logger.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 import 'report_detail.dart';
 
 class ReportsTab extends StatefulWidget {
@@ -76,7 +77,7 @@ class ReportsTabState extends State<ReportsTab> {
 
     return RefreshIndicator(
       onRefresh: _loadDates,
-      child: SelectionArea(child: ListView.builder(
+      child: CopyableSelectionArea(child: ListView.builder(
         padding: const EdgeInsets.all(12),
         itemCount: _dates.length,
         itemBuilder: (ctx, i) {

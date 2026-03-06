@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../api/api_client.dart';
 import '../models/api_models.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 import 'develop_ask_page.dart';
 
 class DevelopDetailPage extends StatefulWidget {
@@ -98,7 +99,7 @@ class _DevelopDetailPageState extends State<DevelopDetailPage> {
               ? const Center(
                   child: Text('Request not found',
                       style: TextStyle(color: KahiliColors.textSecondary)))
-              : SelectionArea(
+              : CopyableSelectionArea(
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [

@@ -1,3 +1,5 @@
+import 'mother_issue.dart';
+
 class SentryIssue {
   final String id;
   final String shortId;
@@ -9,6 +11,9 @@ class SentryIssue {
   final String lastSeen;
   final String platform;
   final String permalink;
+  final List<StackFrame>? stackFrames;
+  final String? errorType;
+  final String? errorValue;
 
   SentryIssue({
     required this.id,
@@ -21,9 +26,22 @@ class SentryIssue {
     required this.lastSeen,
     required this.platform,
     required this.permalink,
+    this.stackFrames,
+    this.errorType,
+    this.errorValue,
   });
 
   factory SentryIssue.fromJson(Map<String, dynamic> json) {
+    List<StackFrame>? frames;
+    if (json['stackTrace'] != null) {
+      final rawFrames = json['stackTrace']['frames'] as List<dynamic>?;
+      if (rawFrames != null) {
+        frames = rawFrames
+            .map((f) => StackFrame.fromJson(f as Map<String, dynamic>))
+            .toList();
+      }
+    }
+
     return SentryIssue(
       id: json['id'] ?? '',
       shortId: json['shortId'] ?? '',
@@ -37,6 +55,9 @@ class SentryIssue {
       lastSeen: json['lastSeen'] ?? '',
       platform: json['platform'] ?? '',
       permalink: json['permalink'] ?? '',
+      stackFrames: frames,
+      errorType: json['errorType'] as String?,
+      errorValue: json['errorValue'] as String?,
     );
   }
 }

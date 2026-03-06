@@ -3,6 +3,7 @@ import '../api/api_client.dart';
 import '../models/api_models.dart';
 import '../models/mother_issue.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 import 'filter_page.dart';
 import 'mother_issue_detail.dart';
 import 'widgets/issue_card.dart';
@@ -236,7 +237,7 @@ class _SentryTabState extends State<SentryTab> {
             _refresh();
             await _issuesFuture;
           },
-          child: SelectionArea(child: Column(
+          child: CopyableSelectionArea(child: Column(
             children: [
               // ── Search bar + filter button ──────────────
               Padding(

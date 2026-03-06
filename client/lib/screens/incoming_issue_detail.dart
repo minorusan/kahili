@@ -6,6 +6,8 @@ import '../api/api_client.dart';
 import '../models/api_models.dart';
 import '../models/sentry_issue.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/stack_trace_block.dart';
+import 'widgets/shared_widgets.dart';
 
 class IncomingIssueDetail extends StatefulWidget {
   final SentryIssue issue;
@@ -18,9 +20,10 @@ class IncomingIssueDetail extends StatefulWidget {
 
 class _IncomingIssueDetailState extends State<IncomingIssueDetail> {
   final _promptController = TextEditingController();
+  bool _creating = false;
   bool _generating = false;
   String? _statusText;
-  String? _resultStatus; // "completed" | "failed" | "rejected"
+  String? _resultStatus;
   Timer? _pollTimer;
 
   @override
@@ -52,6 +55,29 @@ class _IncomingIssueDetailState extends State<IncomingIssueDetail> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
     );
+  }
+
+  Future<void> _createManualMotherIssue() async {
+    setState(() => _creating = true);
+    try {
+      final mi = await ApiClient.createManualMotherIssue(widget.issue.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Mother issue created: ${mi.title.split('\n').first}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _creating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), duration: const Duration(seconds: 3)),
+        );
+      }
+    }
   }
 
   Future<void> _startGeneration() async {
@@ -134,34 +160,57 @@ class _IncomingIssueDetailState extends State<IncomingIssueDetail> {
           child: Container(height: 1, color: KahiliColors.border),
         ),
       ),
-      body: SelectionArea(child: ListView(
+      floatingActionButton: FloatingActionButton(
+        onPressed: _creating ? null : _createManualMotherIssue,
+        backgroundColor: _creating ? KahiliColors.surfaceBright : KahiliColors.flame,
+        child: _creating
+            ? const SizedBox(
+                width: 24, height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+              )
+            : const Icon(Icons.add, color: Colors.black),
+      ),
+      body: CopyableSelectionArea(child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           // ── Title block ─────────────────────────────────
           _titleBlock(shortTitle, levelColor),
           const SizedBox(height: 16),
 
+          // ── Error detail ────────────────────────────────
+          if (issue.errorType != null || issue.errorValue != null)  ...[
+            _errorDetailBlock(),
+            const SizedBox(height: 16),
+          ],
+
           // ── Metrics ─────────────────────────────────────
           _metricsRow(),
           const SizedBox(height: 16),
 
           // ── Timeline ────────────────────────────────────
-          _sectionHeader('Timeline'),
-          _darkCard(
+          sectionHeader('Timeline'),
+          darkCard(
             child: Column(
               children: [
-                _timelineRow('First seen', _formatDate(issue.firstSeen), KahiliColors.emerald),
-                const Divider(height: 1, color: KahiliColors.border),
-                _timelineRow('Last seen', _formatDate(issue.lastSeen), KahiliColors.flame),
+                timelineRow('First seen', _formatDate(issue.firstSeen), KahiliColors.emerald),
+                kahiliDivider(),
+                timelineRow('Last seen', _formatDate(issue.lastSeen), KahiliColors.flame),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
+          // ── Stack trace ─────────────────────────────────
+          if (issue.stackFrames != null && issue.stackFrames!.isNotEmpty) ...[
+            sectionHeader('Stack Trace'),
+            StackTraceBlock(frames: issue.stackFrames!),
+            const SizedBox(height: 16),
+          ],
+
           // ── Sentry link ─────────────────────────────────
           if (issue.permalink.isNotEmpty) ...[
-            _sectionHeader('Sentry Link'),
-            _darkCard(
+            sectionHeader('Sentry Link'),
+            darkCard(
               child: InkWell(
                 onTap: () => launchUrl(Uri.parse(issue.permalink), mode: LaunchMode.externalApplication),
                 onLongPress: () => _copy(issue.permalink),
@@ -192,7 +241,7 @@ class _IncomingIssueDetailState extends State<IncomingIssueDetail> {
           ],
 
           // ── Rule generation ─────────────────────────────
-          _sectionHeader('Create Grouping Rule'),
+          sectionHeader('Create Grouping Rule'),
           _ruleGenerationSection(),
           const SizedBox(height: 40),
         ],
@@ -250,17 +299,42 @@ class _IncomingIssueDetailState extends State<IncomingIssueDetail> {
               height: 1.3,
             ),
           ),
-          if (widget.issue.title.contains('\n')) ...[
+        ],
+      ),
+    );
+  }
+
+  Widget _errorDetailBlock() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: KahiliColors.surfaceLight,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: KahiliColors.error.withAlpha(40)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.issue.errorType != null)
+            Text(
+              widget.issue.errorType!,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: KahiliColors.flame,
+                fontFamily: 'monospace',
+              ),
+            ),
+          if (widget.issue.errorValue != null) ...[
             const SizedBox(height: 6),
             Text(
-              widget.issue.title.split('\n').skip(1).join('\n'),
-              maxLines: 6,
-              overflow: TextOverflow.ellipsis,
+              widget.issue.errorValue!,
               style: const TextStyle(
-                color: KahiliColors.textTertiary,
                 fontSize: 12,
+                color: KahiliColors.textSecondary,
                 fontFamily: 'monospace',
-                height: 1.4,
+                height: 1.5,
               ),
             ),
           ],
@@ -435,41 +509,6 @@ class _IncomingIssueDetailState extends State<IncomingIssueDetail> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, left: 4),
-      child: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: KahiliColors.textSecondary, letterSpacing: 0.3)),
-    );
-  }
-
-  Widget _darkCard({required Widget child}) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: KahiliColors.surfaceLight,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: KahiliColors.border),
-      ),
-      child: child,
-    );
-  }
-
-  Widget _timelineRow(String label, String value, Color dotColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-          const SizedBox(width: 10),
-          SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 12, color: KahiliColors.textTertiary))),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13, color: KahiliColors.textPrimary, fontFamily: 'monospace')),
           ),
         ],
       ),

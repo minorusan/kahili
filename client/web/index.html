@@ -46,18 +46,6 @@
       }
     }
   </script>
-  <script>
-    // Workaround: Flutter web (CanvasKit) intercepts Ctrl+C but doesn't
-    // always copy to clipboard. Bridge the browser selection to clipboard.
-    document.addEventListener('keydown', function(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        var sel = window.getSelection();
-        if (sel && sel.toString().length > 0) {
-          navigator.clipboard.writeText(sel.toString());
-        }
-      }
-    });
-  </script>
-  <script src="flutter_bootstrap.js" async></script>
+<script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/api_client.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 import '../utils/web_download.dart';
 
 class ReportDetail extends StatefulWidget {
@@ -205,7 +206,7 @@ class _ReportDetailState extends State<ReportDetail> {
           ? const Center(child: CircularProgressIndicator())
           : _rows.isEmpty
               ? const Center(child: Text('No data', style: TextStyle(color: KahiliColors.textTertiary)))
-              : SelectionArea(child: ListView(
+              : CopyableSelectionArea(child: ListView(
                   padding: const EdgeInsets.all(12),
                   children: [
                     // Summary stats

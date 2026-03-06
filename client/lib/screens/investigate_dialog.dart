@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../models/api_models.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 
 class InvestigateDialog extends StatefulWidget {
   final String motherIssueId;
@@ -147,7 +148,7 @@ class _InvestigateDialogState extends State<InvestigateDialog> {
           top: BorderSide(color: KahiliColors.flame, width: 2),
         ),
       ),
-      child: SelectionArea(child: SingleChildScrollView(
+      child: CopyableSelectionArea(child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,

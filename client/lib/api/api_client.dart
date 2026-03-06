@@ -42,6 +42,18 @@ class ApiClient {
     return MotherIssue.fromJson(jsonDecode(res.body));
   }
 
+  static Future<MotherIssue> createManualMotherIssue(String issueId) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/kahu/mother-issues/manual'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'issueId': issueId}),
+    );
+    if (res.statusCode != 201) {
+      throw Exception('Failed to create mother issue: ${res.statusCode} ${res.body}');
+    }
+    return MotherIssue.fromJson(jsonDecode(res.body));
+  }
+
   // ── Investigation ─────────────────────────────────────────────────
 
   static Future<InvestigationStatus> getInvestigationStatus() async {
@@ -106,6 +118,14 @@ class ApiClient {
     return data
         .map((item) => SentryIssue.fromJson(item as Map<String, dynamic>))
         .toList();
+  }
+
+  static Future<Map<String, dynamic>> getIssueDetail(String id) async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/kahu/issues/$id'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to load issue detail: ${res.statusCode}');
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   // ── Rule generation ────────────────────────────────────────────

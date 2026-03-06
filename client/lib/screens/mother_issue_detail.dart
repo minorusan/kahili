@@ -351,7 +351,7 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
         foregroundColor: Colors.black,
         child: const Icon(Icons.copy_all),
       ),
-      body: SelectionArea(child: ListView(
+      body: CopyableSelectionArea(child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           // ── Title block ────────────────────────────────────────────

@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../api/api_client.dart';
 import '../models/api_models.dart';
 import '../theme/kahili_theme.dart';
+import 'widgets/shared_widgets.dart';
 
 class HelpDetailPage extends StatefulWidget {
   final String questionId;
@@ -65,7 +66,7 @@ class _HelpDetailPageState extends State<HelpDetailPage> {
               ? const Center(
                   child: Text('Question not found',
                       style: TextStyle(color: KahiliColors.textSecondary)))
-              : SelectionArea(
+              : CopyableSelectionArea(
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
