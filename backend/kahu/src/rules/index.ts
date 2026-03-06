@@ -7,6 +7,7 @@ import { HttpClientErrorStartRule } from "./http-client-error-start-rule.js";
 import { SkuIconRule } from "./sku-icon-rule.js";
 import { CouponsServiceRule } from "./coupons-service-rule.js";
 import { ContinuousOperationChallengePopupRule } from "./continuous-operation-challenge-popup-rule.js";
+import { ContinousOperationScoreMasterStampItPopupRule } from "./continous-operation-scoremaster-stampit-popup-rule.js";
 import { AlbumLiveOpInitRule } from "./album-liveop-init-rule.js";
 import { ManagedStacktraceRule } from "./managed-stacktrace-rule.js";
 import { NreManagedStacktraceRule } from "./nre-managed-stacktrace-rule.js";
@@ -19,7 +20,7 @@ import { loadAllIssues, backfillFirstSeenRelease } from "../storage.js";
 import { log } from "../logger.js";
 import type { SavedIssue } from "../types.js";
 
-export const RULES: Rule[] = [ new MilestoneErrorRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule(), new CouponsServiceRule(), new ContinuousOperationChallengePopupRule(), new AlbumLiveOpInitRule(), new ManagedStacktraceRule(), new NreManagedStacktraceRule()];
+export const RULES: Rule[] = [ new MilestoneErrorRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule(), new CouponsServiceRule(), new ContinuousOperationChallengePopupRule(), new ContinousOperationScoreMasterStampItPopupRule(), new AlbumLiveOpInitRule(), new ManagedStacktraceRule(), new NreManagedStacktraceRule()];
 
 /**
  * Parse Unity/C# stack frames from a message string.
@@ -28,7 +29,7 @@ export const RULES: Rule[] = [ new MilestoneErrorRule(), new UnityWebRequestRule
  *   ClassName+<Lambda>d__1:MoveNext()
  *   Namespace.Class.<Method>d__5:MoveNext()
  */
-function parseStackFromMessage(
+export function parseStackFromMessage(
   msg: string
 ): Array<{ filename: string; function: string; lineno: number; inApp: boolean }> {
   // Split on literal \n (from JSON) or actual newlines

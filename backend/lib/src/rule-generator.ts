@@ -85,6 +85,11 @@ WHAT YOU MUST DO:
 5. Update index.ts to import your new rule and add it to the RULES array
 6. Write completion status to the status file
 
+IMPORTANT — VERIFY AGAINST REAL DATA:
+- The user request may contain typos or approximate names. Do NOT blindly copy them into string matching.
+- Before writing the rule, read a few actual issue JSON files from {{KAHU_DIR}}/data/issues/ to confirm the exact spelling of tokens, class names, and field values you plan to match against.
+- Use the correct spelling found in real data, not the user's request.
+
 CONSTRAINTS:
 - You may ONLY create/modify files inside {{RULES_DIR}}
 - You may ONLY create one new .ts rule file and update index.ts
