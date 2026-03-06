@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../api/api_client.dart';
+import '../models/api_models.dart';
 import '../theme/kahili_theme.dart';
 
 class HelpDetailPage extends StatefulWidget {

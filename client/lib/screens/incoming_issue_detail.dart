@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/api_client.dart';
+import '../models/api_models.dart';
 import '../models/sentry_issue.dart';
 import '../theme/kahili_theme.dart';
 

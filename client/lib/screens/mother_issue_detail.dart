@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api/api_client.dart';
+import '../models/api_models.dart';
 import '../models/mother_issue.dart';
 import '../theme/kahili_theme.dart';
 import '../utils/web_download.dart';
 import 'investigate_dialog.dart';
 import 'archive_dialog.dart';
+import 'widgets/shared_widgets.dart';
+import 'widgets/stack_trace_block.dart';
+import 'widgets/child_issues_section.dart';
+import 'widgets/investigation_panel.dart';
 
 class MotherIssueDetail extends StatefulWidget {
   final MotherIssue issue;
@@ -26,8 +29,8 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
   InvestigationStatus? _investigationStatus;
   Timer? _pollTimer;
 
-  // Archive selection
-  final Set<int> _selectedChildIndices = {};
+  // Child issues section key for clearing selection
+  final GlobalKey<State> _childIssuesKey = GlobalKey<State>();
 
   // Rule regeneration
   late TextEditingController _ruleController;
@@ -360,21 +363,21 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
           const SizedBox(height: 16),
 
           // ── Timeline ───────────────────────────────────────────────
-          _section('Timeline'),
-          _darkCard(
+          sectionHeader('Timeline'),
+          darkCard(
             child: Column(
               children: [
-                _timelineRow('First seen', _formatDate(widget.issue.metrics.firstSeen), KahiliColors.emerald),
+                timelineRow('First seen', _formatDate(widget.issue.metrics.firstSeen), KahiliColors.emerald),
                 if (widget.issue.firstSeenRelease != null) ...[
-                  _divider(),
-                  _timelineRow('First version', widget.issue.firstSeenRelease!, KahiliColors.cyan),
+                  kahiliDivider(),
+                  timelineRow('First version', widget.issue.firstSeenRelease!, KahiliColors.cyan),
                 ],
-                _divider(),
-                _timelineRow('Last seen', _formatDate(widget.issue.metrics.lastSeen), KahiliColors.flame),
-                _divider(),
-                _timelineRow('Created', _formatDate(widget.issue.createdAt), KahiliColors.textTertiary),
-                _divider(),
-                _timelineRow('Updated', _formatDate(widget.issue.updatedAt), KahiliColors.textTertiary),
+                kahiliDivider(),
+                timelineRow('Last seen', _formatDate(widget.issue.metrics.lastSeen), KahiliColors.flame),
+                kahiliDivider(),
+                timelineRow('Created', _formatDate(widget.issue.createdAt), KahiliColors.textTertiary),
+                kahiliDivider(),
+                timelineRow('Updated', _formatDate(widget.issue.updatedAt), KahiliColors.textTertiary),
               ],
             ),
           ),
@@ -382,8 +385,8 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
 
           // ── Stack trace ────────────────────────────────────────────
           if (widget.issue.stackFrames != null && widget.issue.stackFrames!.isNotEmpty) ...[
-            _section('Stack Trace'),
-            _stackTraceBlock(),
+            sectionHeader('Stack Trace'),
+            StackTraceBlock(frames: widget.issue.stackFrames!),
             const SizedBox(height: 16),
           ],
 
@@ -398,12 +401,24 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
           const SizedBox(height: 16),
 
           // ── Investigation section ──────────────────────────────────
-          _investigationSection(isInvestigating),
+          InvestigationPanel(
+            reportLoading: _reportLoading,
+            isInvestigating: isInvestigating,
+            report: _report,
+            investigationStatus: _investigationStatus,
+            onInvestigate: _openInvestigateDialog,
+          ),
           const SizedBox(height: 16),
 
           // ── Child issues (selectable) ─────────────────────────────
           if (widget.issue.sentryLinks.isNotEmpty) ...[
-            _childIssuesSection(),
+            ChildIssuesSection(
+              key: _childIssuesKey,
+              sentryLinks: widget.issue.sentryLinks,
+              childIssueIds: widget.issue.childIssueIds,
+              childStatuses: widget.issue.childStatuses,
+              onArchivePressed: _onArchivePressed,
+            ),
             const SizedBox(height: 16),
           ],
 
@@ -435,8 +450,8 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
                   children: [
                     const Divider(height: 1, color: KahiliColors.border),
                     for (int i = 0; i < widget.issue.smartlookUrls.length; i++) ...[
-                      if (i > 0) _divider(),
-                      _linkRow(context, widget.issue.smartlookUrls[i], Icons.play_circle_outline),
+                      if (i > 0) kahiliDivider(),
+                      linkRow(context, widget.issue.smartlookUrls[i], Icons.play_circle_outline),
                     ],
                   ],
                 ),
@@ -446,7 +461,7 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
           ],
 
           // ── Grouping key ───────────────────────────────────────────
-          _section('Grouping Key'),
+          sectionHeader('Grouping Key'),
           GestureDetector(
             onTap: () => _copy(context, widget.issue.groupingKey),
             child: Container(
@@ -477,256 +492,9 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     );
   }
 
-  // ── Child issues section ────────────────────────────────────────
+  // ── Archive handler ────────────────────────────────────────────────
 
-  Widget _childIssuesSection() {
-    final issue = widget.issue;
-    final unresolvedCount = issue.childStatuses
-        .where((s) => s == 'unresolved')
-        .length;
-    final hasSelection = _selectedChildIndices.isNotEmpty;
-
-    // Split into unresolved and resolved/archived
-    final unresolvedIndices = <int>[];
-    final archivedIndices = <int>[];
-    for (int i = 0; i < issue.sentryLinks.length; i++) {
-      if (i < issue.childStatuses.length && issue.childStatuses[i] != 'unresolved') {
-        archivedIndices.add(i);
-      } else {
-        unresolvedIndices.add(i);
-      }
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header row with select-all for unresolved
-        Row(
-          children: [
-            Expanded(child: _section('Child Issues')),
-            if (unresolvedCount > 0)
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    final allUnresolved = unresolvedIndices.toSet();
-                    if (_selectedChildIndices.containsAll(allUnresolved)) {
-                      _selectedChildIndices.clear();
-                    } else {
-                      _selectedChildIndices.addAll(allUnresolved);
-                    }
-                  });
-                },
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 8, right: 4),
-                  child: Text(
-                    hasSelection ? 'Deselect all' : 'Select all unresolved',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: KahiliColors.flame,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-
-        // Unresolved issues
-        if (unresolvedIndices.isNotEmpty)
-          _darkCard(
-            child: Column(
-              children: [
-                for (int j = 0; j < unresolvedIndices.length; j++) ...[
-                  if (j > 0) _divider(),
-                  _unresolvedChildRow(unresolvedIndices[j]),
-                ],
-              ],
-            ),
-          ),
-
-        // Resolved/archived issues in foldout
-        if (archivedIndices.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: KahiliColors.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: KahiliColors.border),
-            ),
-            child: Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-                childrenPadding: EdgeInsets.zero,
-                collapsedIconColor: KahiliColors.textTertiary,
-                iconColor: KahiliColors.textTertiary,
-                title: Row(
-                  children: [
-                    const Icon(Icons.archive_outlined, size: 16, color: KahiliColors.textTertiary),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${archivedIndices.length} resolved / archived',
-                      style: const TextStyle(fontSize: 13, color: KahiliColors.textTertiary),
-                    ),
-                  ],
-                ),
-                children: [
-                  const Divider(height: 1, color: KahiliColors.border),
-                  for (int j = 0; j < archivedIndices.length; j++) ...[
-                    if (j > 0) _divider(),
-                    _archivedChildRow(archivedIndices[j]),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-
-        // Archive button
-        if (hasSelection) ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: FilledButton.icon(
-              onPressed: _openArchiveDialog,
-              icon: const Icon(Icons.archive, size: 18),
-              label: Text(
-                'Archive ${_selectedChildIndices.length} issue${_selectedChildIndices.length == 1 ? '' : 's'}',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: KahiliColors.flame,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _unresolvedChildRow(int index) {
-    final url = widget.issue.sentryLinks[index];
-    final isSelected = _selectedChildIndices.contains(index);
-    final issueId = index < widget.issue.childIssueIds.length
-        ? widget.issue.childIssueIds[index]
-        : '';
-    final shortId = url.split('/').where((s) => s.isNotEmpty).lastOrNull ?? issueId;
-
-    return InkWell(
-      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        color: isSelected ? KahiliColors.flame.withAlpha(12) : null,
-        child: Row(
-          children: [
-            // Checkbox — precise tap target
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => setState(() {
-                if (isSelected) {
-                  _selectedChildIndices.remove(index);
-                } else {
-                  _selectedChildIndices.add(index);
-                }
-              }),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: isSelected ? KahiliColors.flame : KahiliColors.textTertiary,
-                      width: isSelected ? 2 : 1.5,
-                    ),
-                    color: isSelected ? KahiliColors.flame.withAlpha(25) : Colors.transparent,
-                  ),
-                  child: isSelected
-                      ? const Icon(Icons.check, size: 12, color: KahiliColors.flame)
-                      : null,
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            // Issue link
-            Expanded(
-              child: Text(
-                shortId,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: KahiliColors.cyan,
-                  fontFamily: 'monospace',
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const Icon(Icons.open_in_new, size: 14, color: KahiliColors.textTertiary),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _archivedChildRow(int index) {
-    final url = widget.issue.sentryLinks[index];
-    final issueId = index < widget.issue.childIssueIds.length
-        ? widget.issue.childIssueIds[index]
-        : '';
-    final shortId = url.split('/').where((s) => s.isNotEmpty).lastOrNull ?? issueId;
-    final status = index < widget.issue.childStatuses.length
-        ? widget.issue.childStatuses[index]
-        : 'archived';
-
-    return InkWell(
-      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                shortId,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: KahiliColors.textTertiary,
-                  fontFamily: 'monospace',
-                  decoration: TextDecoration.lineThrough,
-                  decorationColor: KahiliColors.textTertiary,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: KahiliColors.textTertiary.withAlpha(20),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                status,
-                style: const TextStyle(fontSize: 10, color: KahiliColors.textTertiary),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openArchiveDialog() async {
-    final selectedIds = _selectedChildIndices
-        .where((i) => i < widget.issue.childIssueIds.length)
-        .map((i) => widget.issue.childIssueIds[i])
-        .toList();
-    final selectedLinks = _selectedChildIndices
-        .where((i) => i < widget.issue.sentryLinks.length)
-        .map((i) => widget.issue.sentryLinks[i])
-        .toList();
-
+  Future<void> _onArchivePressed(List<String> selectedIds, List<String> selectedLinks) async {
     final result = await Navigator.of(context).push<Map<String, dynamic>>(
       MaterialPageRoute(
         builder: (_) => ArchiveDialog(
@@ -748,14 +516,13 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
           backgroundColor: allOk ? KahiliColors.emerald : KahiliColors.error,
         ),
       );
-      // Clear selection and mark as archived locally
+      // Trigger rebuild of child issues section by updating statuses
       setState(() {
-        for (final idx in _selectedChildIndices) {
-          if (idx < widget.issue.childStatuses.length) {
-            widget.issue.childStatuses[idx] = 'ignored';
+        for (int i = 0; i < widget.issue.sentryLinks.length; i++) {
+          if (selectedLinks.contains(widget.issue.sentryLinks[i]) && i < widget.issue.childStatuses.length) {
+            widget.issue.childStatuses[i] = 'ignored';
           }
         }
-        _selectedChildIndices.clear();
       });
     }
   }
@@ -769,7 +536,7 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _section('Rule'),
+        sectionHeader('Rule'),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(14),
@@ -921,326 +688,7 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
     );
   }
 
-  String? _extractTldr(String report) {
-    final lines = report.split('\n');
-    int start = -1;
-    for (int i = 0; i < lines.length; i++) {
-      final lower = lines[i].toLowerCase().replaceAll(RegExp(r'[^a-z0-9#\s]'), '');
-      if (lower.startsWith('##') && (lower.contains('tldr') || lower.contains('tl dr') || lower.contains('summary'))) {
-        start = i + 1;
-        break;
-      }
-    }
-    if (start < 0) return null;
-    final buf = StringBuffer();
-    for (int i = start; i < lines.length; i++) {
-      if (lines[i].startsWith('##')) break;
-      final trimmed = lines[i].replaceFirst(RegExp(r'^[-*]\s*'), '').trim();
-      if (trimmed.isNotEmpty) {
-        if (buf.isNotEmpty) buf.write('\n');
-        buf.write(trimmed);
-      }
-    }
-    final result = buf.toString().trim();
-    return result.isEmpty ? null : result;
-  }
-
-  // ── Investigation section ─────────────────────────────────────────
-
-  Widget _investigationSection(bool isInvestigating) {
-    // Loading state
-    if (_reportLoading) {
-      return _darkCard(
-        child: const Padding(
-          padding: EdgeInsets.all(24),
-          child: Center(
-            child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-          ),
-        ),
-      );
-    }
-
-    // Active investigation — show status panel
-    if (isInvestigating) {
-      return _investigationStatusPanel();
-    }
-
-    // Report exists — show it in collapsible
-    if (_report != null && _report!.isNotEmpty) {
-      // Extract TLDR section for collapsed preview
-      final tldr = _extractTldr(_report!);
-
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: KahiliColors.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: KahiliColors.border),
-            ),
-            child: Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-                childrenPadding: EdgeInsets.zero,
-                collapsedIconColor: KahiliColors.textTertiary,
-                iconColor: KahiliColors.flame,
-                title: Row(
-                  children: [
-                    const Icon(Icons.description_outlined, size: 16, color: KahiliColors.flame),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Investigation Report',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: KahiliColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: tldr != null
-                    ? Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          tldr,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: KahiliColors.textTertiary,
-                            height: 1.4,
-                          ),
-                          maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      )
-                    : null,
-                children: [
-                  const Divider(height: 1, color: KahiliColors.border),
-                  _reportBlock(),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _openInvestigateDialog,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Restart Investigation'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: KahiliColors.flame,
-                side: const BorderSide(color: KahiliColors.flame, width: 1),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-
-    // No report, no investigation — show investigate button
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: FilledButton.icon(
-        onPressed: _openInvestigateDialog,
-        icon: const Icon(Icons.search, size: 20),
-        label: const Text(
-          'Investigate',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-        ),
-        style: FilledButton.styleFrom(
-          backgroundColor: KahiliColors.flame,
-          foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      ),
-    );
-  }
-
-  Widget _investigationStatusPanel() {
-    final elapsed = _investigationStatus!.startedAt != null
-        ? DateTime.now()
-            .toUtc()
-            .difference(DateTime.parse(_investigationStatus!.startedAt!))
-        : null;
-    final elapsedStr = elapsed != null
-        ? '${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s'
-        : '';
-
-    // Show last few lines of the report as live preview
-    final lastReport = _investigationStatus!.lastReport ?? '';
-    final previewLines = lastReport.split('\n').where((l) => l.trim().isNotEmpty).toList();
-    final preview = previewLines.length > 6
-        ? previewLines.sublist(previewLines.length - 6).join('\n')
-        : previewLines.join('\n');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _section('Investigation In Progress'),
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: KahiliColors.surfaceLight,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: KahiliColors.gold.withAlpha(60)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Status header
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: KahiliColors.gold.withAlpha(12),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-                ),
-                child: Row(
-                  children: [
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: KahiliColors.gold,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'Agent is investigating...',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: KahiliColors.gold,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (elapsedStr.isNotEmpty)
-                      Text(
-                        elapsedStr,
-                        style: const TextStyle(fontSize: 12, color: KahiliColors.textTertiary, fontFamily: 'monospace'),
-                      ),
-                  ],
-                ),
-              ),
-
-              // Branch info
-              if (_investigationStatus!.branch != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.commit, size: 14, color: KahiliColors.textTertiary),
-                      const SizedBox(width: 6),
-                      Text(
-                        _investigationStatus!.branch!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontFamily: 'monospace',
-                          color: KahiliColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Live preview
-              if (preview.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF08080E),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      preview,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        color: KahiliColors.textTertiary,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ),
-
-              // Polling hint
-              const Padding(
-                padding: EdgeInsets.fromLTRB(14, 0, 14, 12),
-                child: Text(
-                  'Polling every 30s...',
-                  style: TextStyle(fontSize: 10, color: KahiliColors.textTertiary),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _reportBlock() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      child: MarkdownBody(
-        data: _report!,
-        styleSheet: MarkdownStyleSheet(
-          // Headings
-          h1: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: KahiliColors.textPrimary, height: 1.4),
-          h2: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: KahiliColors.flame, height: 1.5),
-          h3: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: KahiliColors.textPrimary, height: 1.4),
-          // Body
-          p: const TextStyle(fontSize: 13, color: KahiliColors.textPrimary, height: 1.6),
-          strong: const TextStyle(fontWeight: FontWeight.w700, color: KahiliColors.textPrimary),
-          em: const TextStyle(fontStyle: FontStyle.italic, color: KahiliColors.textSecondary),
-          // Code
-          code: TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 12,
-            color: KahiliColors.cyan,
-            backgroundColor: KahiliColors.surfaceBright,
-          ),
-          codeblockDecoration: BoxDecoration(
-            color: const Color(0xFF08080E),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: KahiliColors.border),
-          ),
-          codeblockPadding: const EdgeInsets.all(12),
-          codeblockAlign: WrapAlignment.start,
-          // Lists
-          listBullet: const TextStyle(color: KahiliColors.flame),
-          // Links
-          a: const TextStyle(color: KahiliColors.cyan, decoration: TextDecoration.underline),
-          // Dividers
-          horizontalRuleDecoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: KahiliColors.border, width: 1)),
-          ),
-          // Block quote
-          blockquoteDecoration: BoxDecoration(
-            border: const Border(left: BorderSide(color: KahiliColors.flame, width: 3)),
-            color: KahiliColors.flame.withAlpha(8),
-          ),
-          blockquotePadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          // Spacing
-          h1Padding: const EdgeInsets.only(top: 8, bottom: 4),
-          h2Padding: const EdgeInsets.only(top: 16, bottom: 4),
-          h3Padding: const EdgeInsets.only(top: 12, bottom: 4),
-          pPadding: const EdgeInsets.only(bottom: 8),
-        ),
-      ),
-    );
-  }
-
-  // ── Shared widgets ────────────────────────────────────────────────
+  // ── Remaining private widgets ──────────────────────────────────────
 
   Widget _titleBlock(String shortTitle, Color levelColor) {
     return Container(
@@ -1342,233 +790,6 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
             Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: KahiliColors.textPrimary)),
             const SizedBox(height: 2),
             Text(label, style: const TextStyle(fontSize: 11, color: KahiliColors.textTertiary)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _stackTraceBlock() {
-    final frames = widget.issue.stackFrames!;
-    final appFrameCount = frames.where((f) => f.inApp).length;
-
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF08080E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: KahiliColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: const BoxDecoration(
-              color: KahiliColors.surfaceBright,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(11)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.layers, size: 14, color: KahiliColors.textTertiary),
-                const SizedBox(width: 6),
-                Text(
-                  '${frames.length} frames',
-                  style: const TextStyle(fontSize: 12, color: KahiliColors.textSecondary),
-                ),
-                if (appFrameCount > 0) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 4,
-                    height: 4,
-                    decoration: const BoxDecoration(color: KahiliColors.textTertiary, shape: BoxShape.circle),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: KahiliColors.flame,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$appFrameCount in-app',
-                    style: const TextStyle(fontSize: 12, color: KahiliColors.flame),
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          // Frames
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: frames.asMap().entries.map((entry) {
-                final frame = entry.value;
-                final isApp = frame.inApp;
-                final hasFile = frame.filename.isNotEmpty;
-
-                // Build display string
-                String display;
-                if (hasFile) {
-                  display = '${frame.filename}:${frame.lineno} in ${frame.function}';
-                } else {
-                  display = frame.function;
-                }
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Frame number
-                      SizedBox(
-                        width: 24,
-                        child: Text(
-                          '${entry.key}',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                            color: KahiliColors.textTertiary,
-                          ),
-                        ),
-                      ),
-                      // In-app indicator bar
-                      if (isApp)
-                        Container(
-                          width: 3,
-                          height: 16,
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            color: KahiliColors.flame,
-                            borderRadius: BorderRadius.circular(1.5),
-                          ),
-                        )
-                      else
-                        const SizedBox(width: 11),
-                      // Frame text
-                      Expanded(
-                        child: Text(
-                          display,
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            color: isApp ? KahiliColors.gold : KahiliColors.textTertiary,
-                            fontWeight: isApp ? FontWeight.w500 : FontWeight.w400,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _section(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, left: 4),
-      child: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: KahiliColors.textSecondary, letterSpacing: 0.3)),
-    );
-  }
-
-  Widget _darkCard({required Widget child}) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: KahiliColors.surfaceLight,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: KahiliColors.border),
-      ),
-      child: child,
-    );
-  }
-
-  Widget _divider() => const Divider(height: 1, color: KahiliColors.border);
-
-  Widget _timelineRow(String label, String value, Color dotColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-          const SizedBox(width: 10),
-          SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 12, color: KahiliColors.textTertiary))),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13, color: KahiliColors.textPrimary, fontFamily: 'monospace')),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _linkRow(BuildContext context, String url, IconData icon) {
-    return InkWell(
-      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-      onLongPress: () => _copy(context, url),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: KahiliColors.cyanMuted),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(url, style: const TextStyle(fontSize: 12, color: KahiliColors.cyan, fontFamily: 'monospace'), overflow: TextOverflow.ellipsis),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _copy(context, url),
-              child: const Icon(Icons.copy_rounded, size: 14, color: KahiliColors.textTertiary),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _childLinkRow(BuildContext context, String url, {required bool isArchived}) {
-    return InkWell(
-      onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-      onLongPress: () => _copy(context, url),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            Icon(
-              isArchived ? Icons.archive_outlined : Icons.open_in_new,
-              size: 16,
-              color: isArchived ? KahiliColors.textTertiary : KahiliColors.cyanMuted,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                url,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isArchived ? KahiliColors.textTertiary : KahiliColors.cyan,
-                  fontFamily: 'monospace',
-                  decoration: isArchived ? TextDecoration.lineThrough : null,
-                  decorationColor: KahiliColors.textTertiary,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _copy(context, url),
-              child: const Icon(Icons.copy_rounded, size: 14, color: KahiliColors.textTertiary),
-            ),
           ],
         ),
       ),

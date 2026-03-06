@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api/api_client.dart';
+import '../models/api_models.dart';
 import '../theme/kahili_theme.dart';
 import 'help_ask_page.dart';
 import 'help_detail_page.dart';

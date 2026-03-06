@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../api/api_client.dart';
+import '../models/api_models.dart';
 import '../models/mother_issue.dart';
 import '../theme/kahili_theme.dart';
 import 'filter_page.dart';
 import 'mother_issue_detail.dart';
+import 'widgets/issue_card.dart';
 
 class SentryTab extends StatefulWidget {
   const SentryTab({super.key});
@@ -117,7 +119,7 @@ class _SentryTabState extends State<SentryTab> {
   }
 
   /// Apply the full pipeline: search → sort → partition (filter-matched first).
-  List<_DisplayIssue> _applyPipeline(List<MotherIssue> raw) {
+  List<DisplayIssue> _applyPipeline(List<MotherIssue> raw) {
     // 1. Text search
     var filtered = raw;
     if (_searchText.isNotEmpty) {
@@ -143,16 +145,16 @@ class _SentryTabState extends State<SentryTab> {
     // 3. Partition: filter-matched issues first
     final hasFilters = _filterSettings.filterStrings.isNotEmpty;
     if (!hasFilters) {
-      return filtered.map((i) => _DisplayIssue(issue: i, matchesFilter: false)).toList();
+      return filtered.map((i) => DisplayIssue(issue: i, matchesFilter: false)).toList();
     }
 
-    final matching = <_DisplayIssue>[];
-    final rest = <_DisplayIssue>[];
+    final matching = <DisplayIssue>[];
+    final rest = <DisplayIssue>[];
     for (final issue in filtered) {
       if (_matchesFilter(issue)) {
-        matching.add(_DisplayIssue(issue: issue, matchesFilter: true));
+        matching.add(DisplayIssue(issue: issue, matchesFilter: true));
       } else {
-        rest.add(_DisplayIssue(issue: issue, matchesFilter: false));
+        rest.add(DisplayIssue(issue: issue, matchesFilter: false));
       }
     }
     return [...matching, ...rest];
@@ -309,7 +311,7 @@ class _SentryTabState extends State<SentryTab> {
                     final issue = di.issue;
                     final isInvestigating = _activeInvestigationIssueId == issue.id;
                     final isInvestigated = _investigatedIds.contains(issue.id);
-                    return _IssueCard(
+                    return IssueCard(
                       issue: issue,
                       isInvestigating: isInvestigating,
                       isInvestigated: isInvestigated,
@@ -332,246 +334,6 @@ class _SentryTabState extends State<SentryTab> {
               ),
             ],
           )),
-        );
-      },
-    );
-  }
-}
-
-class _DisplayIssue {
-  final MotherIssue issue;
-  final bool matchesFilter;
-
-  _DisplayIssue({required this.issue, required this.matchesFilter});
-}
-
-class _IssueCard extends StatelessWidget {
-  final MotherIssue issue;
-  final bool isInvestigating;
-  final bool isInvestigated;
-  final bool isArchived;
-  final bool matchesFilter;
-  final String timeAgo;
-  final String Function(int) formatCount;
-  final VoidCallback onTap;
-
-  const _IssueCard({
-    required this.issue,
-    required this.isInvestigating,
-    required this.isInvestigated,
-    required this.isArchived,
-    required this.matchesFilter,
-    required this.timeAgo,
-    required this.formatCount,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final levelColor = isArchived
-        ? KahiliColors.textTertiary.withAlpha(80)
-        : KahiliColors.levelColor(issue.level);
-    final shortTitle = issue.title.split('\n').first;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Opacity(
-        opacity: isArchived ? 0.45 : 1.0,
-        child: Material(
-        color: KahiliColors.surfaceLight,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          splashColor: KahiliColors.flame.withAlpha(20),
-          highlightColor: KahiliColors.flame.withAlpha(10),
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(color: levelColor, width: 3),
-              ),
-            ),
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title row with optional investigation indicator + filter icon
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        shortTitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isArchived
-                              ? KahiliColors.textTertiary
-                              : KahiliColors.textPrimary,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14,
-                          height: 1.3,
-                        ),
-                      ),
-                    ),
-                    if (matchesFilter) ...[
-                      const SizedBox(width: 6),
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(Icons.filter_alt, size: 14, color: KahiliColors.flame),
-                      ),
-                    ],
-                    if (isInvestigating) ...[
-                      const SizedBox(width: 8),
-                      _InvestigatingBadge(),
-                    ] else if (isInvestigated) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: KahiliColors.emerald.withAlpha(20),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: KahiliColors.emerald.withAlpha(50)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle, size: 10, color: KahiliColors.emerald),
-                            SizedBox(width: 4),
-                            Text(
-                              'INVESTIGATED',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: KahiliColors.emerald,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // Bottom row
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: KahiliColors.cyan.withAlpha(20),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: KahiliColors.cyan.withAlpha(40)),
-                      ),
-                      child: Text(
-                        issue.ruleName,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: KahiliColors.cyan,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    _stat(Icons.local_fire_department, formatCount(issue.metrics.totalOccurrences)),
-                    const SizedBox(width: 10),
-                    _stat(Icons.people_outline, formatCount(issue.metrics.affectedUsers)),
-                    if (issue.childIssueIds.length > 1) ...[
-                      const SizedBox(width: 10),
-                      _stat(Icons.account_tree_outlined, '${issue.childIssueIds.length}'),
-                    ],
-                    const Spacer(),
-                    Text(
-                      timeAgo,
-                      style: const TextStyle(fontSize: 11, color: KahiliColors.textTertiary),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      ),
-    );
-  }
-
-  Widget _stat(IconData icon, String value) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: KahiliColors.textTertiary),
-        const SizedBox(width: 3),
-        Text(value, style: const TextStyle(fontSize: 12, color: KahiliColors.textSecondary)),
-      ],
-    );
-  }
-}
-
-class _InvestigatingBadge extends StatefulWidget {
-  @override
-  State<_InvestigatingBadge> createState() => _InvestigatingBadgeState();
-}
-
-class _InvestigatingBadgeState extends State<_InvestigatingBadge>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, child) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: KahiliColors.gold.withAlpha(15 + (_controller.value * 20).toInt()),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: KahiliColors.gold.withAlpha(40 + (_controller.value * 40).toInt()),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 10,
-                height: 10,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.5,
-                  color: KahiliColors.gold,
-                  value: null,
-                ),
-              ),
-              const SizedBox(width: 5),
-              const Text(
-                'INVESTIGATING',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: KahiliColors.gold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
         );
       },
     );
