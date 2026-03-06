@@ -53,12 +53,12 @@ class MotherIssue {
   final String level;
   final MotherIssueMetrics metrics;
   final List<String> childIssueIds;
-  final List<String> childStatuses;
+  List<String> childStatuses;
   final List<String> sentryLinks;
   final List<String> smartlookUrls;
   final List<StackFrame>? stackFrames;
   final String? firstSeenRelease;
-  final bool allChildrenArchived;
+  bool allChildrenArchived;
   final String createdAt;
   final String updatedAt;
 

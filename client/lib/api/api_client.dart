@@ -42,6 +42,10 @@ class ApiClient {
     return MotherIssue.fromJson(jsonDecode(res.body));
   }
 
+  static Future<void> syncMotherIssue(String id) async {
+    await http.post(Uri.parse('$_baseUrl/api/kahu/mother-issues/$id/sync'));
+  }
+
   static Future<MotherIssue> createManualMotherIssue(String issueId) async {
     final res = await http.post(
       Uri.parse('$_baseUrl/api/kahu/mother-issues/manual'),

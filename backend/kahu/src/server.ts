@@ -10,8 +10,8 @@ import {
   loadMotherIssue as loadMotherIssueFromDisk,
   saveMotherIssue,
 } from "./rules/storage.js";
-import { loadAllIssues, loadIssue } from "./storage.js";
-import { RULES, parseStackFromMessage } from "./rules/index.js";
+import { loadAllIssues, loadIssue, saveIssue } from "./storage.js";
+import { RULES, parseStackFromMessage, processRules } from "./rules/index.js";
 import { backfillReport } from "./reporter.js";
 import type { SentryClient, ArchiveParams } from "./sentry-client.js";
 
@@ -553,6 +553,41 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return json(res, mi, 201);
   }
 
+  // API: sync a mother issue's child statuses from Sentry
+  const syncMatch = url.match(/^\/api\/mother-issues\/([a-f0-9]+)\/sync$/);
+  if (req.method === "POST" && syncMatch) {
+    const mi = await loadMotherIssueFromDisk(syncMatch[1]);
+    if (!mi) return json(res, { error: "Mother issue not found" }, 404);
+    if (!sentryClient) return json(res, { error: "Sentry client not initialized" }, 500);
+
+    let updated = 0;
+    for (let i = 0; i < mi.childIssueIds.length; i++) {
+      try {
+        const fresh = await sentryClient.getIssue(mi.childIssueIds[i]);
+        const saved = await loadIssue(mi.childIssueIds[i]);
+        if (saved && fresh.status !== saved.issue.status) {
+          saved.issue.status = fresh.status;
+          saved.issue.statusDetails = fresh.statusDetails ?? {};
+          await saveIssue(saved.issue, saved.events);
+          updated++;
+        }
+        mi.childStatuses[i] = fresh.status ?? "unresolved";
+      } catch (err) {
+        log.warn(`[Server] Failed to sync child ${mi.childIssueIds[i]}: ${err}`);
+      }
+    }
+
+    mi.allChildrenArchived = mi.childStatuses.length > 0 &&
+      mi.childStatuses.every((s) => s !== "unresolved");
+    mi.updatedAt = new Date().toISOString();
+    await saveMotherIssue(mi);
+
+    if (updated > 0) {
+      log.info(`[Server] Synced mother issue ${mi.id}: ${updated} child statuses updated, allArchived=${mi.allChildrenArchived}`);
+    }
+    return json(res, { ok: true, updated, allChildrenArchived: mi.allChildrenArchived });
+  }
+
   // API: single mother issue
   const apiMotherMatch = url.match(/^\/api\/mother-issues\/([a-f0-9]+)$/);
   if (apiMotherMatch) {
@@ -619,6 +654,29 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         const msg = err instanceof Error ? err.message : String(err);
         log.error(`[Server] Failed to archive issue ${issueId}: ${msg}`);
         results.push({ issueId, ok: false, error: msg });
+      }
+    }
+
+    // Sync: update local statuses for archived issues and re-run rules
+    const archivedIds = results.filter((r) => r.ok).map((r) => r.issueId);
+    if (archivedIds.length > 0) {
+      for (const id of archivedIds) {
+        try {
+          const saved = await loadIssue(id);
+          if (saved && saved.issue.status === "unresolved") {
+            saved.issue.status = "ignored";
+            await saveIssue(saved.issue, saved.events);
+          }
+        } catch (err) {
+          log.warn(`[Server] Failed to update local status for ${id}: ${err}`);
+        }
+      }
+      // Re-run rules so mother issue allChildrenArchived updates immediately
+      try {
+        await processRules();
+        log.info(`[Server] Re-processed rules after archiving ${archivedIds.length} issues`);
+      } catch (err) {
+        log.warn(`[Server] Failed to re-process rules after archive: ${err}`);
       }
     }
 

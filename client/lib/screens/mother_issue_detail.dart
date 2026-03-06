@@ -32,6 +32,9 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
   // Child issues section key for clearing selection
   final GlobalKey<State> _childIssuesKey = GlobalKey<State>();
 
+  // Child status sync
+  Timer? _syncTimer;
+
   // Rule regeneration
   late TextEditingController _ruleController;
   String _originalRuleDescription = '';
@@ -52,13 +55,31 @@ class _MotherIssueDetailState extends State<MotherIssueDetail> {
   void dispose() {
     _pollTimer?.cancel();
     _regenPollTimer?.cancel();
+    _syncTimer?.cancel();
     _ruleController.dispose();
+    // Fire-and-forget: sync child statuses from Sentry when page closes
+    ApiClient.syncMotherIssue(widget.issue.id);
     super.dispose();
   }
 
   Future<void> _loadData() async {
     await Future.wait([_loadReport(), _pollInvestigation(), _loadRuleDescription()]);
     _startPollingIfNeeded();
+    _syncChildStatuses();
+    _syncTimer = Timer.periodic(const Duration(seconds: 10), (_) => _syncChildStatuses());
+  }
+
+  Future<void> _syncChildStatuses() async {
+    try {
+      final fresh = await ApiClient.getMotherIssue(widget.issue.id);
+      if (!mounted) return;
+      setState(() {
+        for (int i = 0; i < fresh.childStatuses.length && i < widget.issue.childStatuses.length; i++) {
+          widget.issue.childStatuses[i] = fresh.childStatuses[i];
+        }
+        widget.issue.allChildrenArchived = fresh.allChildrenArchived;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadRuleDescription() async {
