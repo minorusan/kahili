@@ -278,4 +278,67 @@ class ApiClient {
     }
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
+
+  // ── Develop agent ──────────────────────────────────────────────────
+
+  static Future<DevelopAgentStatus> getDevelopAgentStatus() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/develop-agent'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to get develop agent status: ${res.statusCode}');
+    }
+    return DevelopAgentStatus.fromJson(jsonDecode(res.body));
+  }
+
+  static Future<void> startDevelopAgent(String request) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/develop-agent'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'request': request}),
+    );
+    if (res.statusCode != 200) {
+      final data = jsonDecode(res.body);
+      throw Exception(data['error'] ?? 'Failed to start develop agent');
+    }
+  }
+
+  static Future<List<DevelopRequestSummary>> getDevelopRequests() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/develop-requests'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to load develop requests: ${res.statusCode}');
+    }
+    final List<dynamic> data = jsonDecode(res.body);
+    return data
+        .map((item) => DevelopRequestSummary.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<DevelopRequestDetail> getDevelopRequest(String id) async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/develop-requests/$id'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to load develop request: ${res.statusCode}');
+    }
+    return DevelopRequestDetail.fromJson(jsonDecode(res.body));
+  }
+
+  // ── Prompts ──────────────────────────────────────────────────────
+
+  static Future<List<Map<String, dynamic>>> getPrompts() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/prompts'));
+    if (res.statusCode != 200) {
+      throw Exception('Failed to load prompts: ${res.statusCode}');
+    }
+    final List<dynamic> data = jsonDecode(res.body);
+    return data.cast<Map<String, dynamic>>();
+  }
+
+  static Future<void> savePrompt(String name, String template) async {
+    final res = await http.put(
+      Uri.parse('$_baseUrl/api/prompts/$name'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'template': template}),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Failed to save prompt: ${res.statusCode}');
+    }
+  }
 }

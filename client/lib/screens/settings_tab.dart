@@ -24,10 +24,15 @@ class SettingsTabState extends State<SettingsTab> {
   bool _obscureSentry = true;
   bool _obscureOpenai = true;
 
+  List<Map<String, dynamic>> _prompts = [];
+  final Map<String, TextEditingController> _promptCtrls = {};
+  bool _loadingPrompts = true;
+
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadPrompts();
   }
 
   @override
@@ -37,6 +42,9 @@ class SettingsTabState extends State<SettingsTab> {
     _repoPathCtrl.dispose();
     _pollIntervalCtrl.dispose();
     _reportIntervalCtrl.dispose();
+    for (final ctrl in _promptCtrls.values) {
+      ctrl.dispose();
+    }
     super.dispose();
   }
 
@@ -56,6 +64,39 @@ class SettingsTabState extends State<SettingsTab> {
       _pollIntervalCtrl.text = '300';
       _reportIntervalCtrl.text = '60';
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadPrompts() async {
+    try {
+      final prompts = await ApiClient.getPrompts();
+      if (!mounted) return;
+      setState(() {
+        _prompts = prompts;
+        for (final p in prompts) {
+          final name = p['name'] as String;
+          _promptCtrls[name] = TextEditingController(text: p['template'] as String? ?? '');
+        }
+        _loadingPrompts = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingPrompts = false);
+    }
+  }
+
+  Future<void> _savePrompt(String name) async {
+    final ctrl = _promptCtrls[name];
+    if (ctrl == null) return;
+
+    try {
+      await ApiClient.savePrompt(name, ctrl.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Prompt "$name" saved')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Failed to save prompt: $e');
     }
   }
 
@@ -261,8 +302,152 @@ class SettingsTabState extends State<SettingsTab> {
                   : const Text('Apply', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
           ),
+          const SizedBox(height: 32),
+
+          // ── Agent Prompts ──────────────────────────────────────
+          _sectionHeader('Agent Prompts'),
+          const SizedBox(height: 4),
+          const Text(
+            'System prompts sent to AI agents. Use {{PLACEHOLDERS}} for dynamic values.',
+            style: TextStyle(fontSize: 11, color: KahiliColors.textTertiary),
+          ),
+          const SizedBox(height: 12),
+
+          if (_loadingPrompts)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else
+            ..._prompts.map((p) {
+              final name = p['name'] as String;
+              final desc = p['description'] as String? ?? '';
+              final isCustomized = p['isCustomized'] == true;
+              return _promptEditor(name, desc, isCustomized);
+            }),
+
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+
+  Widget _promptEditor(String name, String description, bool isCustomized) {
+    final ctrl = _promptCtrls[name];
+    if (ctrl == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: KahiliColors.surfaceLight,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isCustomized ? KahiliColors.flame.withAlpha(60) : KahiliColors.border,
+          ),
+        ),
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+            collapsedIconColor: KahiliColors.textTertiary,
+            iconColor: KahiliColors.flame,
+            title: Row(
+              children: [
+                const Icon(Icons.smart_toy_outlined, size: 16, color: KahiliColors.flame),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: KahiliColors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (isCustomized)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: KahiliColors.flame.withAlpha(20),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'CUSTOM',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: KahiliColors.flame,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            subtitle: description.isNotEmpty
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      description,
+                      style: const TextStyle(fontSize: 11, color: KahiliColors.textTertiary),
+                    ),
+                  )
+                : null,
+            children: [
+              const Divider(height: 1, color: KahiliColors.border),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: ctrl,
+                      maxLines: 15,
+                      minLines: 8,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        color: KahiliColors.textPrimary,
+                        height: 1.5,
+                      ),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: const Color(0xFF08080E),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: KahiliColors.border),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: KahiliColors.border),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: KahiliColors.flame),
+                        ),
+                        contentPadding: const EdgeInsets.all(12),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => _savePrompt(name),
+                          style: TextButton.styleFrom(
+                            foregroundColor: KahiliColors.flame,
+                          ),
+                          child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

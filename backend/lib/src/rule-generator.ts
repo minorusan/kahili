@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { broadcast } from "./websocket.js";
 import { log } from "./logger.js";
 import { spawnAgent, pipeAgentLogs, killProcessTree } from "./agent-spawn.js";
+import { registerDefaultPrompt, getPromptTemplate } from "./prompt-store.js";
 import { restartKahu } from "./kahu-manager.js";
 import { readBuild } from "./build.js";
 
@@ -48,13 +49,12 @@ export function getCurrentRuleGeneration(): RuleGeneration | null {
   return current;
 }
 
-function buildRuleGenPrompt(userPrompt: string, statusPath: string): string {
-  return `You are a rule generator for a Sentry error grouping system.
+const RULE_GEN_DEFAULT_PROMPT = `You are a rule generator for a Sentry error grouping system.
 
 USER REQUEST:
-${userPrompt}
+{{USER_PROMPT}}
 
-STATUS FILE AT ${statusPath}
+STATUS FILE AT {{STATUS_PATH}}
 You MUST write to this file throughout your work:
 1. IMMEDIATELY write: "Generating: Analyzing request..."
 2. As you progress, UPDATE with brief status
@@ -63,13 +63,13 @@ You MUST write to this file throughout your work:
    "REJECTED BY AGENT: <reason>"
    and stop. Do NOT create any files in that case.
 
-YOUR WORKING DIRECTORY: ${RULES_DIR}
+YOUR WORKING DIRECTORY: {{RULES_DIR}}
 
 REFERENCE FILES (read these first to understand the patterns):
-- ${resolve(RULES_DIR, "rule.ts")} — the abstract Rule base class and MotherIssue interface
-- ${resolve(RULES_DIR, "nre-rule.ts")} — example rule implementation (NullReferenceException grouping)
-- ${resolve(RULES_DIR, "index.ts")} — rule runner that imports and registers all rules
-- ${resolve(KAHU_DIR, "src", "types.ts")} — SavedIssue, SentryFullEvent, and all Sentry types
+- {{RULES_DIR}}/rule.ts — the abstract Rule base class and MotherIssue interface
+- {{RULES_DIR}}/nre-rule.ts — example rule implementation (NullReferenceException grouping)
+- {{RULES_DIR}}/index.ts — rule runner that imports and registers all rules
+- {{KAHU_DIR}}/src/types.ts — SavedIssue, SentryFullEvent, and all Sentry types
 
 WHAT YOU MUST DO:
 1. Read all reference files above to understand the architecture
@@ -86,13 +86,23 @@ WHAT YOU MUST DO:
 6. Write completion status to the status file
 
 CONSTRAINTS:
-- You may ONLY create/modify files inside ${RULES_DIR}
+- You may ONLY create/modify files inside {{RULES_DIR}}
 - You may ONLY create one new .ts rule file and update index.ts
 - Do NOT touch any other files
 - Do NOT install packages
 - Do NOT run build commands
 - Follow the exact same patterns as nre-rule.ts
 - The groupingKey must return a deterministic string for grouping, or null to skip`;
+
+registerDefaultPrompt("rule-generation", RULE_GEN_DEFAULT_PROMPT);
+
+function buildRuleGenPrompt(userPrompt: string, statusPath: string): string {
+  const template = getPromptTemplate("rule-generation");
+  return template
+    .replace(/\{\{USER_PROMPT\}\}/g, userPrompt)
+    .replace(/\{\{STATUS_PATH\}\}/g, statusPath)
+    .replace(/\{\{RULES_DIR\}\}/g, RULES_DIR)
+    .replace(/\{\{KAHU_DIR\}\}/g, KAHU_DIR);
 }
 
 /**

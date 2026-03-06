@@ -9,6 +9,8 @@ import { applyKahuSettings, readKahuSettings, type KahuSettings } from "./settin
 import { startInvestigation, getCurrentInvestigation, cancelInvestigation } from "./investigator.js";
 import { startRuleGeneration, getCurrentRuleGeneration, cancelRuleGeneration, deleteRule } from "./rule-generator.js";
 import { startHelpAgent, getCurrentHelpAgent, cancelHelpAgent, listHelpQuestions, getHelpAnswer } from "./help-agent.js";
+import { startDevelopAgent, getCurrentDevelopAgent, cancelDevelopAgent, listDevelopRequests, getDevelopDetail } from "./develop-agent.js";
+import { listPrompts, getPromptTemplate, savePromptTemplate } from "./prompt-store.js";
 import { attachWebSocket } from "./websocket.js";
 import { log } from "./logger.js";
 
@@ -686,6 +688,95 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return json(res, { error: "not found" }, 404);
     }
     return json(res, answer);
+  }
+
+  // GET /api/develop-agent — current develop agent status
+  if (req.method === "GET" && url === "/api/develop-agent") {
+    const agent = getCurrentDevelopAgent();
+    if (!agent) {
+      return json(res, { active: false });
+    }
+    return json(res, { active: agent.status === "running", agent });
+  }
+
+  // POST /api/develop-agent — start develop agent
+  if (req.method === "POST" && url === "/api/develop-agent") {
+    let body: { request?: string };
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw);
+    } catch {
+      return json(res, { error: "invalid JSON body" }, 400);
+    }
+
+    if (!body.request) {
+      return json(res, { error: "request is required" }, 400);
+    }
+
+    try {
+      const agent = await startDevelopAgent(body.request);
+      return json(res, { ok: true, agent });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = msg.includes("already being processed") ? 409 : 500;
+      return json(res, { error: msg }, status);
+    }
+  }
+
+  // DELETE /api/develop-agent — cancel develop agent
+  if (req.method === "DELETE" && url === "/api/develop-agent") {
+    const cancelled = cancelDevelopAgent();
+    return json(res, { ok: cancelled });
+  }
+
+  // GET /api/develop-requests — list all develop requests
+  if (req.method === "GET" && url === "/api/develop-requests") {
+    return json(res, listDevelopRequests());
+  }
+
+  // GET /api/develop-requests/:id — get a specific request with report
+  const developMatch = url.match(/^\/api\/develop-requests\/([a-z0-9]+)$/);
+  if (req.method === "GET" && developMatch) {
+    const detail = getDevelopDetail(developMatch[1]);
+    if (!detail) {
+      return json(res, { error: "not found" }, 404);
+    }
+    return json(res, detail);
+  }
+
+  // GET /api/prompts — list all agent prompts
+  if (req.method === "GET" && url === "/api/prompts") {
+    return json(res, listPrompts());
+  }
+
+  // GET /api/prompts/:name — get a specific prompt template
+  const promptGetMatch = url.match(/^\/api\/prompts\/([a-z-]+)$/);
+  if (req.method === "GET" && promptGetMatch) {
+    const name = promptGetMatch[1];
+    const template = getPromptTemplate(name);
+    if (!template) {
+      return json(res, { error: "not found" }, 404);
+    }
+    return json(res, { name, template });
+  }
+
+  // PUT /api/prompts/:name — save a customized prompt
+  const promptPutMatch = url.match(/^\/api\/prompts\/([a-z-]+)$/);
+  if (req.method === "PUT" && promptPutMatch) {
+    let body: { template?: string };
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw);
+    } catch {
+      return json(res, { error: "invalid JSON body" }, 400);
+    }
+
+    if (!body.template) {
+      return json(res, { error: "template is required" }, 400);
+    }
+
+    savePromptTemplate(promptPutMatch[1], body.template);
+    return json(res, { ok: true, name: promptPutMatch[1] });
   }
 
   // Proxy kahu API — /api/kahu/* → kahu:3456/api/*

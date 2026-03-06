@@ -13,6 +13,7 @@ import { broadcast } from "./websocket.js";
 import { readKahuSettings } from "./settings.js";
 import { log } from "./logger.js";
 import { spawnAgent, pipeAgentLogs, killProcessTree } from "./agent-spawn.js";
+import { registerDefaultPrompt, getPromptTemplate } from "./prompt-store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(__dirname, "../..");
@@ -129,47 +130,24 @@ function buildErrorDetails(
   return lines.join("\n");
 }
 
-function buildAgentPrompt(
-  motherIssuePath: string,
-  childIssuePaths: string[],
-  reportPath: string,
-  branch?: string,
-  additionalPrompt?: string
-): string {
-  let branchInstruction: string;
-  if (branch) {
-    branchInstruction = `Use branch/tag: ${branch}`;
-  } else {
-    branchInstruction = `No branch specified — use git branch -a to find the closest match to the release version in the error details, or use the default branch.`;
-  }
+const INVESTIGATION_DEFAULT_PROMPT = `You are investigating a Sentry error. Your task is to investigate, identify root cause, and suggest a concrete fix.
 
-  let extra = "";
-  if (additionalPrompt) {
-    extra = `\n\nADDITIONAL CONTEXT FROM USER:\n${additionalPrompt}`;
-  }
-
-  const childFiles = childIssuePaths.length
-    ? childIssuePaths.map((p) => `  - ${p}`).join("\n")
-    : "  (none)";
-
-  return `You are investigating a Sentry error. Your task is to investigate, identify root cause, and suggest a concrete fix.
-
-MANDATORY: STATUS FILE AT ${reportPath}
+MANDATORY: STATUS FILE AT {{REPORT_PATH}}
 You MUST write to this file throughout your investigation:
 1. IMMEDIATELY write: "Investigating: Starting analysis..."
 2. As you progress, UPDATE the file with brief status
 3. When DONE, REPLACE entire file content with your final report
 
 ERROR DATA FILES (read these first):
-Mother issue: ${motherIssuePath}
+Mother issue: {{MOTHER_ISSUE_PATH}}
 Child issues:
-${childFiles}
+{{CHILD_ISSUE_PATHS}}
 
 INVESTIGATION STEPS:
 1. Write initial status to report file
 2. Read the mother issue JSON file to understand the error (title, errorType, stackTrace, metrics)
 3. Read child issue JSON files for full event details and stack traces
-4. BRANCH SELECTION — ${branchInstruction}
+4. BRANCH SELECTION — {{BRANCH_INSTRUCTION}}
 5. Use git show <branch>:<filepath> to read source files (DO NOT checkout)
 6. Trace the error — understand WHY, not just WHERE
 7. git log --format='%aN' -5 on affected files to find suggested assignee
@@ -191,7 +169,36 @@ A 2-3 sentence summary: how severe this likely is, and what's going wrong. Be di
 RULES:
 - ONLY git readonly commands (show, log, grep, blame)
 - Do NOT checkout, pull, or modify source files
-- ONLY write to the report file at ${reportPath}${extra}`;
+- ONLY write to the report file at {{REPORT_PATH}}{{ADDITIONAL_PROMPT}}`;
+
+registerDefaultPrompt("investigation", INVESTIGATION_DEFAULT_PROMPT);
+
+function buildAgentPrompt(
+  motherIssuePath: string,
+  childIssuePaths: string[],
+  reportPath: string,
+  branch?: string,
+  additionalPrompt?: string
+): string {
+  const branchInstruction = branch
+    ? `Use branch/tag: ${branch}`
+    : `No branch specified — use git branch -a to find the closest match to the release version in the error details, or use the default branch.`;
+
+  const childFiles = childIssuePaths.length
+    ? childIssuePaths.map((p) => `  - ${p}`).join("\n")
+    : "  (none)";
+
+  const extra = additionalPrompt
+    ? `\n\nADDITIONAL CONTEXT FROM USER:\n${additionalPrompt}`
+    : "";
+
+  const template = getPromptTemplate("investigation");
+  return template
+    .replace(/\{\{REPORT_PATH\}\}/g, reportPath)
+    .replace(/\{\{MOTHER_ISSUE_PATH\}\}/g, motherIssuePath)
+    .replace(/\{\{CHILD_ISSUE_PATHS\}\}/g, childFiles)
+    .replace(/\{\{BRANCH_INSTRUCTION\}\}/g, branchInstruction)
+    .replace(/\{\{ADDITIONAL_PROMPT\}\}/g, extra);
 }
 
 export async function startInvestigation(

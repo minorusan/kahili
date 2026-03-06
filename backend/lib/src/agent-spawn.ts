@@ -28,7 +28,7 @@ export function killAllAgents(): void {
 
 /**
  * Kill a process and all its children (the whole process group tree).
- * Used to clean up script + claude agent after completion.
+ * Used to clean up codex agent after completion.
  */
 export function killProcessTree(pid: number): void {
   try {
@@ -47,16 +47,25 @@ export function killProcessTree(pid: number): void {
 }
 
 /**
- * Spawn a claude agent wrapped in `script -qc` for PTY allocation.
- * Returns the script ChildProcess (whose child is claude).
+ * Spawn an OpenAI Codex agent in non-interactive exec mode.
+ * Returns the codex ChildProcess.
  */
 export function spawnAgent(prompt: string, cwd: string): ChildProcess {
-  const agentEnv = { ...process.env };
+  const agentEnv: Record<string, string | undefined> = {
+    ...process.env,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
+  };
   delete agentEnv.CLAUDECODE;
 
   const child = spawn(
-    "script",
-    ["-qc", `claude --dangerously-skip-permissions -p ${JSON.stringify(prompt)}`, "/dev/null"],
+    "codex",
+    [
+      "exec",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--skip-git-repo-check",
+      "-C", cwd,
+      prompt,
+    ],
     {
       cwd,
       stdio: "pipe",

@@ -150,6 +150,111 @@ class HelpQuestionSummary {
   }
 }
 
+// ── Develop agent models ──────────────────────────────────────────
+
+class DevelopAgentStatus {
+  final bool active;
+  final String? id;
+  final String? request;
+  final String? status; // "running" | "completed" | "failed" | "rejected"
+  final String? statusText;
+  final String? rejectionReason;
+  final String? commitHash;
+  final String? startedAt;
+  final String? completedAt;
+
+  DevelopAgentStatus({
+    required this.active,
+    this.id,
+    this.request,
+    this.status,
+    this.statusText,
+    this.rejectionReason,
+    this.commitHash,
+    this.startedAt,
+    this.completedAt,
+  });
+
+  factory DevelopAgentStatus.fromJson(Map<String, dynamic> json) {
+    final agent = json['agent'] as Map<String, dynamic>?;
+    return DevelopAgentStatus(
+      active: json['active'] == true,
+      id: agent?['id'],
+      request: agent?['request'],
+      status: agent?['status'],
+      statusText: agent?['statusText'],
+      rejectionReason: agent?['rejectionReason'],
+      commitHash: agent?['commitHash'],
+      startedAt: agent?['startedAt'],
+      completedAt: agent?['completedAt'],
+    );
+  }
+}
+
+class DevelopRequestSummary {
+  final String id;
+  final String request;
+  final String status;
+  final String? rejectionReason;
+  final String? commitHash;
+  final String startedAt;
+  final String? completedAt;
+
+  DevelopRequestSummary({
+    required this.id,
+    required this.request,
+    required this.status,
+    this.rejectionReason,
+    this.commitHash,
+    required this.startedAt,
+    this.completedAt,
+  });
+
+  factory DevelopRequestSummary.fromJson(Map<String, dynamic> json) {
+    return DevelopRequestSummary(
+      id: json['id'] ?? '',
+      request: json['request'] ?? '',
+      status: json['status'] ?? '',
+      rejectionReason: json['rejectionReason'],
+      commitHash: json['commitHash'],
+      startedAt: json['startedAt'] ?? '',
+      completedAt: json['completedAt'],
+    );
+  }
+}
+
+class DevelopRequestDetail {
+  final String request;
+  final String report;
+  final String status;
+  final String? rejectionReason;
+  final String? commitHash;
+  final String startedAt;
+  final String? completedAt;
+
+  DevelopRequestDetail({
+    required this.request,
+    required this.report,
+    required this.status,
+    this.rejectionReason,
+    this.commitHash,
+    required this.startedAt,
+    this.completedAt,
+  });
+
+  factory DevelopRequestDetail.fromJson(Map<String, dynamic> json) {
+    return DevelopRequestDetail(
+      request: json['request'] ?? '',
+      report: json['report'] ?? '',
+      status: json['status'] ?? '',
+      rejectionReason: json['rejectionReason'],
+      commitHash: json['commitHash'],
+      startedAt: json['startedAt'] ?? '',
+      completedAt: json['completedAt'],
+    );
+  }
+}
+
 class HelpQuestionDetail {
   final String question;
   final String answer;

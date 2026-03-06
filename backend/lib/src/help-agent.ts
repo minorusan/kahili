@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { broadcast } from "./websocket.js";
 import { log } from "./logger.js";
 import { spawnAgent, pipeAgentLogs, killProcessTree } from "./agent-spawn.js";
+import { registerDefaultPrompt, getPromptTemplate } from "./prompt-store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(__dirname, "../..");
@@ -133,45 +134,23 @@ function saveMeta(q: HelpQuestion): void {
   );
 }
 
-function buildHelpPrompt(question: string, answerPath: string): string {
-  return `You are the Kahili Help Agent. You ONLY answer questions about Kahili — the Sentry issue tracker and monitoring system.
+const HELP_FAQ_DEFAULT_PROMPT = `You are the Kahili Help Agent. You ONLY answer questions about Kahili — the Sentry issue tracker and monitoring system.
 
 SCOPE RESTRICTION:
 If the user's question is NOT related to Kahili (its features, usage, configuration, architecture, troubleshooting, or the Sentry/monitoring domain it operates in), you MUST write ONLY this to the answer file and exit:
 "I can only answer questions about Kahili. Please ask about Kahili's features, configuration, architecture, troubleshooting, or usage."
 
-ABOUT KAHILI:
-Kahili is a Sentry issue tracker with a Flutter web client and Node.js/TypeScript backend running on Raspberry Pi 5.
+CRITICAL: Read AGENTS.md at the repo root FIRST. It contains the full architecture, directory layout, API routes, code patterns, and all details about Kahili.
 
-Architecture:
-- kahili (parent process manager) — port 3401, serves Flutter web app + management API
-- kahu (Sentry worker) — port 3456, polls Sentry, generates reports, serves issue data API
+You have access to the full Kahili source code at {{PROJECT_ROOT}}. Read files as needed to provide accurate answers.
 
-Key directories:
-- backend/lib/src/ — kahili parent TypeScript source
-- backend/kahu/src/ — kahu worker TypeScript source
-- client/lib/ — Flutter web app source (screens/, api/, models/, theme/)
-- backend/kahu/data/ — runtime data (reports, mother-issues, issues, state)
-- backend/docs/investigations/ — investigation reports
-
-Features:
-- Mother issues: grouped Sentry errors with shared root cause
-- Investigation: AI agent that analyzes errors and suggests fixes
-- Rules: configurable error grouping rules (auto-generated via AI)
-- Daily reports: automated daily summaries
-- Incoming: unresolved child issues needing triage/assignment
-- Help: AI-powered Q&A about the Kahili system itself
-- Settings: configuration for Sentry token, OpenAI key, repo path, poll intervals
-
-You have access to the full Kahili source code at ${PROJECT_ROOT}. Read files as needed to provide accurate answers.
-
-MANDATORY: ANSWER FILE AT ${answerPath}
+MANDATORY: ANSWER FILE AT {{ANSWER_PATH}}
 1. IMMEDIATELY write: "Analyzing your question..."
 2. As you research, UPDATE the file with brief status lines (e.g., "Reading server configuration...", "Checking API endpoints...")
 3. When DONE, REPLACE the entire file with your final answer in well-formatted Markdown
 
 USER'S QUESTION:
-${question}
+{{QUESTION}}
 
 RULES:
 - ONLY answer Kahili-related questions
@@ -179,7 +158,16 @@ RULES:
 - Format your final answer in clear Markdown with headings and code blocks where appropriate
 - Be concise but thorough
 - ONLY read files — do NOT modify any source code or configuration
-- Write ONLY to the answer file at ${answerPath}`;
+- Write ONLY to the answer file at {{ANSWER_PATH}}`;
+
+registerDefaultPrompt("help-faq", HELP_FAQ_DEFAULT_PROMPT);
+
+function buildHelpPrompt(question: string, answerPath: string): string {
+  const template = getPromptTemplate("help-faq");
+  return template
+    .replace(/\{\{PROJECT_ROOT\}\}/g, PROJECT_ROOT)
+    .replace(/\{\{ANSWER_PATH\}\}/g, answerPath)
+    .replace(/\{\{QUESTION\}\}/g, question);
 }
 
 export async function startHelpAgent(

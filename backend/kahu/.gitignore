@@ -1,4 +1,7 @@
 dist/
 node_modules/
-data/
+data/issues/
+data/mother-issues/
+data/state.json
+logs/
 .env
