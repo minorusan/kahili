@@ -9,7 +9,22 @@ Run: `which kahili`
 
 ---
 
-## Step 1: Install Dependencies
+## Step 1: Collect Required Credentials (Before Installing Anything)
+
+Before running any install commands, ask the user to provide these values:
+
+1. **OpenAI API Key** — from https://platform.openai.com/api-keys
+2. **Sentry Auth Token** — from https://sentry.io/settings/auth-tokens/
+Required scopes: `event:read`, `event:admin`, `project:read`, `alerts:read`
+3. **Sentry Organization slug** — from URL: `sentry.io/organizations/<slug>/`
+4. **Sentry Project slug** — from the Sentry project settings
+5. **Repository path watched by Sentry** — absolute path to the app repository that sends errors to Sentry (this is **not** the Kahili repository path unless Kahili itself is what Sentry is monitoring)
+
+Do not continue to dependency installation until the user confirms they have these values.
+
+---
+
+## Step 2: Install Dependencies
 
 ### Node.js (v20+)
 ```bash
@@ -67,7 +82,7 @@ cd ~/kahili/client && flutter pub get
 
 ---
 
-## Step 2: Configure Environment
+## Step 3: Configure Environment
 
 ### Create kahu .env (Sentry worker config)
 ```bash
@@ -91,14 +106,14 @@ EOF
 1. **Sentry Auth Token** — from https://sentry.io/settings/auth-tokens/ (needs `event:read`, `event:admin`, `project:read`, `alerts:read` scopes)
 2. **Sentry Organization slug** — from Sentry URL: `sentry.io/organizations/<slug>/`
 3. **Sentry Project slug** — from Sentry project settings
-4. **Repository path** — absolute path to the project repo on this machine
+4. **Repository path watched by Sentry** — absolute path to the app repo that sends errors to Sentry (not automatically Kahili)
 5. **OpenAI API Key** — from https://platform.openai.com/api-keys
 
 Fill the values into the two `.env` files above.
 
 ---
 
-## Step 3: Install kahili start/stop Commands
+## Step 4: Install kahili start/stop Commands
 
 ### Create the start script
 ```bash
@@ -208,7 +223,7 @@ kahili stop
 
 ---
 
-## Step 4: First Run
+## Step 5: First Run
 
 ```bash
 kahili start
