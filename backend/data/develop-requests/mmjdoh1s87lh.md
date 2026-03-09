@@ -1,0 +1,3 @@
+Evaluating feature request...
+Updated ContinuousOperation StampIt rule to accept misspelled title marker and case-insensitive token matching.
+Running builds next.
