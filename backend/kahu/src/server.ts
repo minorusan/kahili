@@ -501,12 +501,33 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   // API: create manual mother issue from a single incoming issue
+  // Accepts issueId directly or a Sentry URL. Fetches from Sentry if not locally cached.
   if (req.method === "POST" && url === "/api/mother-issues/manual") {
-    const body = JSON.parse(await readBody(req)) as { issueId?: string };
-    if (!body.issueId) return json(res, { error: "issueId is required" }, 400);
+    const body = JSON.parse(await readBody(req)) as { issueId?: string; sentryUrl?: string };
 
-    const saved = await loadIssue(body.issueId);
-    if (!saved) return json(res, { error: "Issue not found" }, 404);
+    let issueId = body.issueId;
+    if (!issueId && body.sentryUrl) {
+      // Extract issue ID from Sentry URL, e.g. https://org.sentry.io/issues/12345/...
+      const m = body.sentryUrl.match(/\/issues\/(\d+)/);
+      if (m) issueId = m[1];
+    }
+    if (!issueId) return json(res, { error: "issueId or sentryUrl is required" }, 400);
+
+    let saved = await loadIssue(issueId);
+
+    // If not cached locally, try fetching from Sentry
+    if (!saved && sentryClient) {
+      try {
+        const sentryIssue = await sentryClient.getIssue(issueId);
+        const events = await sentryClient.getIssueFullEvents(issueId, 5);
+        await saveIssue(sentryIssue as unknown as import("./types.js").SentryIssue, events);
+        saved = await loadIssue(issueId);
+      } catch (err) {
+        log.error(`[Server] Failed to fetch issue ${issueId} from Sentry:`, err);
+      }
+    }
+
+    if (!saved) return json(res, { error: "Issue not found locally or on Sentry" }, 404);
 
     const { createHash } = await import("node:crypto");
     const groupingKey = `Manual::${body.issueId}`;

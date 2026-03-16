@@ -26,7 +26,7 @@ const token = process.env.SENTRY_TOKEN;
 const org = process.env.SENTRY_ORG;
 const project = process.env.SENTRY_PROJECT;
 const pollInterval = parseInt(process.env.POLL_INTERVAL || "300", 10);
-const alertRuleName = process.env.ALERT_RULE_NAME || "Client Errors";
+const searchQuery = process.env.SEARCH_QUERY || "LogSource:client";
 const reportInterval = parseInt(process.env.REPORT_UPDATE_INTERVAL || "300", 10);
 const webPort = parseInt(process.env.WEB_PORT || "3456", 10);
 
@@ -49,7 +49,7 @@ log.info("╠══════════════════════�
 log.info(`║  Build:    ${buildNumber.padEnd(26)}║`);
 log.info(`║  Org:      ${org.padEnd(26)}║`);
 log.info(`║  Project:  ${project.padEnd(26)}║`);
-log.info(`║  Rule:     ${alertRuleName.padEnd(26)}║`);
+log.info(`║  Query:    ${searchQuery.padEnd(26)}║`);
 log.info(`║  Interval: ${String(pollInterval + "s").padEnd(26)}║`);
 log.info(`║  Web UI:   ${"http://localhost:" + webPort}${" ".repeat(Math.max(0, 26 - ("http://localhost:" + webPort).length))}║`);
 log.info("╚═══════════════════════════════════════╝");
@@ -62,5 +62,5 @@ startServer(webPort, client);
 // Run rules engine on startup against existing issues
 await processRules();
 
-startPolling(client, { pollInterval, alertRuleName });
+startPolling(client, { pollInterval, searchQuery });
 startReporter(client, reportInterval);

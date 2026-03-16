@@ -19,6 +19,7 @@ class IncomingTabState extends State<IncomingTab> {
   String? _error;
   String _searchText = '';
   final _searchController = TextEditingController();
+  bool _creatingManual = false;
 
   @override
   void initState() {
@@ -58,6 +59,128 @@ class IncomingTabState extends State<IncomingTab> {
 
   void refresh() => _load();
 
+  Future<void> _showAddIssueDialog() async {
+    final inputController = TextEditingController();
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: KahiliColors.surfaceLight,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20, 16, 20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 32, height: 4,
+                  decoration: BoxDecoration(
+                    color: KahiliColors.textTertiary.withAlpha(80),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(height: 2, color: KahiliColors.flame),
+              const SizedBox(height: 16),
+              const Text(
+                'Add Sentry Issue',
+                style: TextStyle(
+                  color: KahiliColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Enter a Sentry issue ID or URL to create a mother issue with no rule.',
+                style: TextStyle(color: KahiliColors.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: inputController,
+                autofocus: true,
+                style: const TextStyle(fontSize: 14, color: KahiliColors.textPrimary, fontFamily: 'monospace'),
+                decoration: InputDecoration(
+                  hintText: 'e.g. 12345 or https://sentry.io/issues/12345/',
+                  hintStyle: const TextStyle(color: KahiliColors.textTertiary, fontSize: 13),
+                  filled: true,
+                  fillColor: KahiliColors.surfaceBright,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: KahiliColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: KahiliColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: KahiliColors.flame),
+                  ),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+                onSubmitted: (v) {
+                  if (v.trim().isNotEmpty) Navigator.of(ctx).pop(v.trim());
+                },
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final v = inputController.text.trim();
+                    if (v.isNotEmpty) Navigator.of(ctx).pop(v);
+                  },
+                  icon: const Icon(Icons.add, size: 20),
+                  label: const Text('Create Mother Issue',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: KahiliColors.flame,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (result == null || result.isEmpty) return;
+
+    setState(() => _creatingManual = true);
+    try {
+      final mi = await ApiClient.createManualMotherIssueFromInput(result);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Mother issue created: ${mi.title.split('\n').first}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), duration: const Duration(seconds: 3)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _creatingManual = false);
+    }
+  }
+
   String _timeAgo(String isoDate) {
     if (isoDate.isEmpty) return '';
     final dt = DateTime.tryParse(isoDate);
@@ -77,14 +200,34 @@ class IncomingTabState extends State<IncomingTab> {
     return n;
   }
 
+  Widget _buildFab() {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: FloatingActionButton(
+        onPressed: _creatingManual ? null : _showAddIssueDialog,
+        backgroundColor: _creatingManual ? KahiliColors.surfaceBright : KahiliColors.flame,
+        child: _creatingManual
+            ? const SizedBox(
+                width: 24, height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+              )
+            : const Icon(Icons.add, color: Colors.black),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return Stack(children: [
+        const Center(child: CircularProgressIndicator()),
+        _buildFab(),
+      ]);
     }
 
     if (_error != null) {
-      return Center(
+      return Stack(children: [Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
@@ -107,22 +250,25 @@ class IncomingTabState extends State<IncomingTab> {
             ],
           ),
         ),
-      );
+      ), _buildFab()]);
     }
 
     final orphans = _orphans ?? [];
 
     if (orphans.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle_outline, size: 48, color: KahiliColors.emerald),
-            SizedBox(height: 12),
-            Text('All issues are grouped', style: TextStyle(color: KahiliColors.textSecondary)),
-          ],
+      return Stack(children: [
+        const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle_outline, size: 48, color: KahiliColors.emerald),
+              SizedBox(height: 12),
+              Text('All issues are grouped', style: TextStyle(color: KahiliColors.textSecondary)),
+            ],
+          ),
         ),
-      );
+        _buildFab(),
+      ]);
     }
 
     // Apply search filter
@@ -132,7 +278,7 @@ class IncomingTabState extends State<IncomingTab> {
       displayIssues = orphans.where((i) => i.title.toLowerCase().contains(query)).toList();
     }
 
-    return RefreshIndicator(
+    return Stack(children: [RefreshIndicator(
       color: KahiliColors.flame,
       backgroundColor: KahiliColors.surfaceLight,
       onRefresh: () async => _load(),
@@ -166,7 +312,7 @@ class IncomingTabState extends State<IncomingTab> {
           // ── Issue list ─────────────────────────────
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
               itemCount: displayIssues.length,
               itemBuilder: (context, index) {
                 final issue = displayIssues[index];
@@ -188,7 +334,7 @@ class IncomingTabState extends State<IncomingTab> {
           ),
         ],
       )),
-    );
+    ), _buildFab()]);
   }
 }
 

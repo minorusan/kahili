@@ -5,10 +5,12 @@ import { log } from "./logger.js";
 import { processRules } from "./rules/index.js";
 import { stopReporter } from "./reporter.js";
 
-const DEFAULT_ALERT_RULE_NAME = "Client Errors";
+const DEFAULT_SEARCH_QUERY = "LogSource:client";
 
 export interface PollerConfig {
   pollInterval: number; // seconds
+  searchQuery?: string;
+  // Legacy — kept for backwards compat but no longer used
   alertRuleName?: string;
 }
 
@@ -73,35 +75,10 @@ export async function startPolling(
     stopReporter();
   });
 
-  const alertRuleName = config.alertRuleName || DEFAULT_ALERT_RULE_NAME;
+  const searchQuery = config.searchQuery || DEFAULT_SEARCH_QUERY;
   log.info(
-    `[Poll] Starting poller (interval: ${config.pollInterval}s, alert rule: "${alertRuleName}")`
+    `[Poll] Starting poller (interval: ${config.pollInterval}s, query: "${searchQuery}")`
   );
-
-  // Resolve alert rule ID once at startup
-  log.info(`[Poll] Resolving alert rule "${alertRuleName}"...`);
-  const rule = await client.findAlertRuleByName(alertRuleName);
-  if (!rule) {
-    log.error(
-      `[Poll] Alert rule "${alertRuleName}" not found. Available rules listed above.`
-    );
-    const allRules = await client.getAlertRules();
-    log.info(
-      `[Poll] Available alert rules: ${allRules.map((r) => `"${r.name}" (id: ${r.id})`).join(", ")}`
-    );
-    process.exit(1);
-  }
-
-  const alertRuleId = rule.id;
-  log.info(
-    `[Poll] Resolved alert rule "${rule.name}" → id: ${alertRuleId}`
-  );
-
-  // Cache rule info in state
-  const state = await loadState();
-  state.alertRuleId = alertRuleId;
-  state.alertRuleName = rule.name;
-  await saveState(state);
 
   // Refresh issue statuses from Sentry on startup before first poll
   await refreshIssueStatuses(client);
@@ -109,7 +86,7 @@ export async function startPolling(
 
   while (running) {
     try {
-      await pollCycle(client, alertRuleId);
+      await pollCycle(client, searchQuery);
       await refreshIssueStatuses(client);
       await processRules();
     } catch (err) {
@@ -131,33 +108,21 @@ export async function startPolling(
 
 async function pollCycle(
   client: SentryClient,
-  alertRuleId: string
+  searchQuery: string
 ): Promise<void> {
   const state = await loadState();
   const now = new Date().toISOString();
 
-  // Use last poll time as start, or 24h ago for first run
-  const start =
-    state.lastPollTime ||
-    new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const end = now;
+  log.info(`[Poll] Searching Sentry issues: "${searchQuery}"`);
 
-  log.info(`[Poll] Querying alert rule group-history (${start} → ${end})`);
+  const issues = await client.searchIssuesPaginated(searchQuery);
 
-  const historyItems = await client.getAlertRuleGroupHistory(
-    alertRuleId,
-    start,
-    end
-  );
+  log.info(`[Poll] Got ${issues.length} issues from search`);
 
-  log.info(
-    `[Poll] Got ${historyItems.length} triggered issues from alert rule`
-  );
-
-  if (historyItems.length === 0) {
+  if (issues.length === 0) {
     state.lastPollTime = now;
     await saveState(state);
-    log.info("[Poll] No new triggered issues");
+    log.info("[Poll] No issues found");
     return;
   }
 
@@ -165,14 +130,13 @@ async function pollCycle(
   let updatedCount = 0;
   let skippedCount = 0;
 
-  for (const item of historyItems) {
+  for (const issue of issues) {
     if (!running) break;
 
-    const issue = item.group;
     const existing = state.processedIssues[issue.id];
 
-    // Skip if already processed with same lastTriggered
-    if (existing && existing.lastTriggered === item.lastTriggered) {
+    // Skip if already processed with same lastSeen and count
+    if (existing && existing.lastTriggered === issue.lastSeen && existing.count === parseInt(issue.count, 10)) {
       skippedCount++;
       continue;
     }
@@ -193,9 +157,9 @@ async function pollCycle(
           : existing?.lastEventId ?? "";
 
       const issueState: ProcessedIssueState = {
-        lastTriggered: item.lastTriggered,
+        lastTriggered: issue.lastSeen,
         lastEventId,
-        count: item.count,
+        count: parseInt(issue.count, 10) || 0,
       };
       state.processedIssues[issue.id] = issueState;
 

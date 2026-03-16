@@ -58,6 +58,27 @@ class ApiClient {
     return MotherIssue.fromJson(jsonDecode(res.body));
   }
 
+  /// Create a manual mother issue from a Sentry issue ID or URL.
+  /// The backend will fetch from Sentry if the issue isn't locally cached.
+  static Future<MotherIssue> createManualMotherIssueFromInput(String input) async {
+    final body = <String, String>{};
+    // If it looks like a URL, send as sentryUrl; otherwise as issueId
+    if (input.startsWith('http')) {
+      body['sentryUrl'] = input;
+    } else {
+      body['issueId'] = input;
+    }
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/kahu/mother-issues/manual'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (res.statusCode != 201) {
+      throw Exception('Failed to create mother issue: ${res.statusCode} ${res.body}');
+    }
+    return MotherIssue.fromJson(jsonDecode(res.body));
+  }
+
   // ── Investigation ─────────────────────────────────────────────────
 
   static Future<InvestigationStatus> getInvestigationStatus() async {

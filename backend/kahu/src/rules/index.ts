@@ -4,13 +4,19 @@ import { MilestoneErrorRule } from "./milestone-error-rule.js";
 import { UnityWebRequestRule } from "./unity-webrequest-rule.js";
 import { SkullIconRule } from "./skull-icon-rule.js";
 import { HttpClientErrorStartRule } from "./http-client-error-start-rule.js";
+import { HttpClientErrorStatusCodeRule } from "./http-client-error-status-code-rule.js";
 import { SkuIconRule } from "./sku-icon-rule.js";
+import { SkuProviderNotFoundRule } from "./sku-provider-not-found-rule.js";
 import { CouponsServiceRule } from "./coupons-service-rule.js";
-import { ContinuousOperationChallengePopupRule } from "./continuous-operation-challenge-popup-rule.js";
-import { ContinousOperationScoreMasterStampItPopupRule } from "./continous-operation-scoremaster-stampit-popup-rule.js";
 import { AlbumLiveOpInitRule } from "./album-liveop-init-rule.js";
+import { AlbumMessagePrefixRule } from "./album-message-prefix-rule.js";
 import { ManagedStacktraceRule } from "./managed-stacktrace-rule.js";
 import { NreManagedStacktraceRule } from "./nre-managed-stacktrace-rule.js";
+import { ContinuousOperationStampItStacktraceRule } from "./continuous-operation-stampit-stacktrace-rule.js";
+import { ContinuousOperationStampItTitleRule } from "./continuous-operation-stampit-title-rule.js";
+import { BigDataFailedToSendRule } from "./big-data-failed-to-send-rule.js";
+import { UpdatingMilestonesFailedRule } from "./updating-milestones-failed-rule.js";
+import { MissingOfferSlotViewRule } from "./missing-offer-slot-view-rule.js";
 import {
   saveMotherIssue,
   loadAllMotherIssues,
@@ -20,7 +26,7 @@ import { loadAllIssues, backfillFirstSeenRelease } from "../storage.js";
 import { log } from "../logger.js";
 import type { SavedIssue } from "../types.js";
 
-export const RULES: Rule[] = [ new MilestoneErrorRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new SkuIconRule(), new CouponsServiceRule(), new ContinuousOperationChallengePopupRule(), new ContinousOperationScoreMasterStampItPopupRule(), new AlbumLiveOpInitRule(), new ManagedStacktraceRule(), new NreManagedStacktraceRule()];
+export const RULES: Rule[] = [ new MilestoneErrorRule(), new UnityWebRequestRule(), new SkullIconRule(), new HttpClientErrorStartRule(), new HttpClientErrorStatusCodeRule(), new SkuIconRule(), new SkuProviderNotFoundRule(), new CouponsServiceRule(), new ContinuousOperationStampItStacktraceRule(), new ContinuousOperationStampItTitleRule(), new AlbumLiveOpInitRule(), new AlbumMessagePrefixRule(), new ManagedStacktraceRule(), new NreManagedStacktraceRule(), new BigDataFailedToSendRule(), new UpdatingMilestonesFailedRule(), new MissingOfferSlotViewRule()];
 
 /**
  * Parse Unity/C# stack frames from a message string.

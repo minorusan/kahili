@@ -126,6 +126,9 @@ KAHILI_PORT=3401
 KAHU_PORT=3456
 LOG_FILE="/tmp/kahili-main.log"
 
+# Ensure tools are on PATH even in non-interactive / detached shells
+export PATH="$HOME/.flutter-sdk/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin:$PATH"
+
 usage() {
   echo "Usage: kahili {start|stop|status|restart}"
   exit 1
